@@ -1,3 +1,5 @@
+import Canonical
+
 import Mathlib.Data.Int.Basic
 import Mathlib.Data.List.Basic
 import Mathlib.Algebra.Ring.Basic
@@ -63,10 +65,11 @@ def mul (p q : List (Int × Int)) : List (Int × Int) :=
     ring
 
 -- Example: base 10 2-digit multiplication
-example (a0 a1 b0 b1 : Int) :
-  ∃ ab, eval ab = eval [(10, a1), (1, a0)] * eval [(10, b1), (1, b0)] := by
+example (a0 a1 b0 b1 c0 c1 : Int) :
+  ∃ abc, eval abc = eval [(10, a1), (1, a0)] * eval [(10, b1), (1, b0)] + eval [(10, c1), (1, c0)] := by
   rw [←eval_mul]
-  use (mul [(10, a1), (1, a0)] [(10, b1), (1, b0)])
+  rw [←eval_app]
+  grind
 
 -- Split function for reduction
 def split (s : Int) (p : List (Int × Int)) : List (Int × Int) × List (Int × Int) :=
