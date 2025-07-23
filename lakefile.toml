@@ -10,11 +10,12 @@ autoImplicit = false
 [[require]]
 name = "mathlib"
 scope = "leanprover-community"
+version = "git#v4.21.0"
 
 [[require]]
-name = "aesop"
-git = "https://github.com/leanprover-community/aesop"
-rev = "main"
+name = "Canonical"
+scope = "chasenorman"
+version = "git#v4.21.0"
 
 [[lean_lib]]
 name = "Modularity"
