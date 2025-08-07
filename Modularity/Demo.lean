@@ -64,7 +64,7 @@ def mul (p q : List (Int × Int)) : List (Int × Int) :=
     simp [mul, eval_cons, ih]
     ring
 
--- Example: base 10 2-digit multiplication
+-- Example: base 10 2-digit arithmetic
 example (a0 a1 b0 b1 c0 c1 : Int) :
   ∃ abc, eval abc = eval [(10, a1), (1, a0)] * eval [(10, b1), (1, b0)] + eval [(10, c1), (1, c0)] := by
   rw [←eval_mul]
@@ -83,9 +83,20 @@ lemma eval_split (s : Int) (p : List (Int × Int)) (s_nz : s ≠ 0) :
   | nil => simp
   | cons t ts ih =>
     simp [eval_cons]
-    sorry
-    -- by_cases h : t.1 % s == 0
-    -- · simp [h, List.partition]
+    by_cases h : t.1 % s = 0
+    · -- Case: t.1 is divisible by s
+      simp [h, List.partition]
+      rw [eval_cons, ih]
+      have hdiv : t.1 = s * (t.1 / s) := by
+        rw [Int.mul_ediv_cancel_left]
+        exact Int.dvd_iff_emod_eq_zero.mpr h
+      rw [hdiv]
+      ring
+    · -- Case: t.1 is not divisible by s
+      simp [h, List.partition]
+      rw [eval_cons, ih]
+      ring
+
     --   ring_nf
     --   have hh := Int.mul_ediv_cancel_left t.1 s_nz
     --   rw [Int.mul_ediv_assoc]
