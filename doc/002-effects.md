@@ -11,7 +11,11 @@ Jason Gross asked about algebraic effects in Lean.
 * https://xnning.github.io/papers/haskell-evidently.pdf
 
 Composing effects
+* https://casperbp.net/posts/2023-07-algebraic-effects/ 
 * https://discuss.ocaml.org/t/composition-and-algebraic-effects/15468/2
+
+In general, when composing monads, the order of composition is important. For algebraic effects, the order of composing does not matter because we are working over free monads.
+* https://lean-lang.org/doc/reference/latest/Functors___-Monads-and--do--Notation/Varieties-of-Monads/#monad-varieties:~:text=14.5.1.%C2%A0Monad%20Type%20Classes
 
 Example of an effect-oriented programming language 
 * https://flix.dev/
