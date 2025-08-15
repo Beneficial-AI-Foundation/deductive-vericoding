@@ -2,7 +2,7 @@
 
 ## Overview
 * BAIF wants to build an "AtomWorld" where each atom is an implementation function/class or a spec definition/theorem/lemma.
-* Pi Squared is a startup that is also trying to build a kind of AtomWorld on top of blockchain, with diverse kinds of verifiers and certs.
+* [Pi Squared](https://pi2.network/) is a startup that is also trying to build a kind of AtomWorld on top of blockchain, with diverse kinds of verifiers and certs.
 
 ## Some characteristics of AtomWorld
 * Each atom is an "interface" or "open system" or "partial evaluation" (see DOTS)
