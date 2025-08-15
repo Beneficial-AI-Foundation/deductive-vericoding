@@ -26,3 +26,9 @@ Representing domain specific languages (e.g. languages that we want to code in) 
 
 Higher order effects 
 * https://arxiv.org/abs/2302.01415
+
+Polynomial effect handlers
+* https://topos.institute/blog/2024-01-03-algebraic-effect-handlers/ 
+
+Synthesis through unification in Lean
+* https://leanprover.zulipchat.com/#narrow/channel/113488-general/topic/Program.20synthesis.20via.20unification.20in.20Lean.3A.20some.20first.20steps 
