@@ -4,10 +4,16 @@ Deductive program synthesis for heap programs
 
 https://arxiv.org/pdf/1807.07022
 
-## 
+## SuSLik derivations
 
-SuSLik derivations
-![](assets/suslik-derivations.png)
+$$
+\begin{aligned}
+\mathcal{G} \in \text{Goal} &::= \langle f, \Sigma, \Gamma, \{\mathcal{P}\}, \{\mathcal{Q}\} \rangle \\
+\mathcal{K} \in \text{Cont} &\triangleq (\text{Command})^n \to \text{Command} \\
+\mathcal{S} \in \text{Deriv} &::= \langle \overline{\mathcal{G}_i}, \mathcal{K} \rangle \\
+\mathcal{R} \in \text{Rule} &\triangleq \text{Goal} \to \wp(\text{Deriv})
+\end{aligned}
+$$
 
 Goals are of the form $\Gamma, \Sigma; {P} \rightarrow Q \vert f$, where $\Gamma$ is the set of constants, $\Sigma$ is the set of function definitions, $P$ is the precondition (pure predicate and heap state), $Q$ is the postcondition (pure predicate and heap state), and $f$ is the function to be synthesized.
 
