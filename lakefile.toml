@@ -1,7 +1,7 @@
-name = "modularity"
+name = "deductive-vericoding"
 version = "0.1.0"
 keywords = ["math"]
-defaultTargets = ["Modularity"]
+defaultTargets = ["DeductiveVericoding"]
 
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
@@ -18,4 +18,4 @@ scope = "chasenorman"
 version = "git#v4.21.0"
 
 [[lean_lib]]
-name = "Modularity"
+name = "DeductiveVericoding"

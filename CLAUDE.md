@@ -11,9 +11,9 @@ This is a Lean 4 mathematics library focused on "tactics-driven vericoding" - us
 This project uses Lake (Lean's build system):
 
 - **Build the project**: `lake build`
-- **Build a specific target**: `lake build Modularity`
+- **Build a specific target**: `lake build DeductiveVericoding`
 - **Run Lean server**: `lean --server` (for IDE integration)
-- **Check a specific file**: `lean Modularity/Demo.lean`
+- **Check a specific file**: `lean DeductiveVericoding/Demo.lean`
 
 The project requires Lean 4 version `v4.21.0` (specified in `lean-toolchain`).
 
@@ -28,22 +28,22 @@ Dependencies are managed through Lake and specified in `lakefile.toml`.
 
 ### Core Modules
 
-1. **Modularity/Basic.lean**: Foundational theorems and induction proofs
+1. **DeductiveVericoding/Basic.lean**: Foundational theorems and induction proofs
    - Contains `sum_spec` proof using mathematical induction
    - Demonstrates basic proof techniques and recursion patterns
 
-2. **Modularity/Core.lean**: Fiat computational framework
+2. **DeductiveVericoding/Core.lean**: Fiat computational framework
    - Implements monadic computational model using `Set A` for nondeterminism
    - Defines `Return`, `Bind`, `Pick` operations for specification refinement
    - Contains refinement relations and proof tactics for program derivation
 
-3. **Modularity/Demo.lean**: Associational arithmetic implementation
-   - Mixed radix number representation as `List (Int × Int)` 
+3. **DeductiveVericoding/Demo.lean**: Associational arithmetic implementation
+   - Mixed radix number representation as `List (Int × Int)`
    - Polynomial evaluation via `eval` function
    - Arithmetic operations (`mul`, `split`, `reduce`) with correctness proofs
    - Demonstrates tactics-driven program synthesis for modular arithmetic
 
-4. **Modularity/Ensembles.lean**: Set theory foundations
+4. **DeductiveVericoding/Ensembles.lean**: Set theory foundations
    - Naive set theory implementation using predicates (`U → Prop`)
    - Basic set operations (union, intersection, complement)
    - Extensionality axiom and set equality definitions
@@ -63,7 +63,7 @@ Dependencies are managed through Lake and specified in `lakefile.toml`.
 
 ## File Structure
 
-- Root module: `Modularity.lean` (imports `Modularity.Basic`)
-- Source files: `Modularity/` directory
+- Root module: `DeductiveVericoding.lean` (imports `DeductiveVericoding.Basic`)
+- Source files: `DeductiveVericoding/` directory
 - Documentation: `doc/` directory with explanatory markdown files
 - Build configuration: `lakefile.toml`, `lean-toolchain`
