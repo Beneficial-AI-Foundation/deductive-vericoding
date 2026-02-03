@@ -141,3 +141,7 @@ lemma triple_bind {β} (pre : l) (x : m α) (cut : α -> l)
     intros; simp [triple, wp_bind]
     solve_by_elim [le_trans', wp_cons]
 ```
+
+See also `DeductiveVericoding/Triples.lean`.
+
+See `DeductiveVericoding/Reified.lean` for an example where the derived program can be printed.
