@@ -142,17 +142,17 @@ def append {P : Nat → Prop} {x y : Nat → String}
 
 /-! ## Section 6: Synthesis Tactic
 
-The `synth` tactic repeatedly applies combinators to synthesize a verified program. -/
+The `vericode` tactic repeatedly applies combinators to synthesize a verified program. -/
 
 /-- Tactic macro for synthesizing Codable programs -/
-macro "synth" : tactic =>
+macro "vericode" : tactic =>
   `(tactic| repeat any_goals first | apply append | apply showArg | apply showNat | apply str)
 
 /-! ## Section 7: Examples -/
 
 /-- Convert the input to string and append "!" -/
 def natToStringBang : Codable (fun _ => True) (fun n res => res = .str (Nat.repr n ++ "!")) := by
-  synth
+  vericode
 
 -- Evaluate the synthesized program
 #eval (natToStringBang).fctn.eval 42
@@ -164,7 +164,7 @@ def natToStringBang : Codable (fun _ => True) (fun n res => res = .str (Nat.repr
 
 /-- Always return "hello" regardless of input -/
 def constHello : Codable (fun _ => True) (fun _ res => res = .str "hello") := by
-  synth
+  vericode
 
 #eval constHello.fctn.eval 999
 -- Val.str "hello"
