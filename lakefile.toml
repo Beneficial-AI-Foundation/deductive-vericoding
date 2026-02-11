@@ -12,10 +12,15 @@ name = "mathlib"
 scope = "leanprover-community"
 version = "git#v4.21.0"
 
+# [[require]]
+# name = "Canonical"
+# scope = "chasenorman"
+# version = "git#v4.21.0"
+
 [[require]]
-name = "Canonical"
-scope = "chasenorman"
-version = "git#v4.21.0"
+name = "Loom"
+git = "https://github.com/verse-lab/loom.git"
+rev = "master"
 
 [[lean_lib]]
 name = "DeductiveVericoding"
