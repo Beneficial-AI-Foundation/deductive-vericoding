@@ -10,7 +10,7 @@ autoImplicit = false
 [[require]]
 name = "mathlib"
 scope = "leanprover-community"
-version = "git#v4.21.0"
+version = "git#v4.24.0"
 
 # [[require]]
 # name = "Canonical"
