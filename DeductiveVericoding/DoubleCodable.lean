@@ -1,4 +1,3 @@
-import Loom.MonadAlgebras.WP.Basic
 import DeductiveVericoding.DoubleCat
 
 /-!

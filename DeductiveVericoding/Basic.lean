@@ -28,4 +28,4 @@ def Nat.recAux2.{u} : {motive : ℕ → Sort u} →
     motive 0 →
     ((n : ℕ) → motive n → motive (n + 1)) →
     (t : ℕ) → motive t :=
-  fun {motive} zero succ t ↦ Nat.rec zero succ t
+  fun {_motive} zero succ t ↦ Nat.rec zero succ t
