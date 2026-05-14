@@ -54,7 +54,7 @@ post_stronger : ∀ a b, s1.pre a → s2.post a b → s1.post a b
 ## Architecture
 
 ```
-namespace DoubleCat
+namespace Double
   class VertCat            -- Strict vertical category
   class HorizBicat         -- Bicategory structure with whiskering
   class HorizBicatCoherence -- Pentagon and triangle
@@ -65,6 +65,6 @@ namespace DoubleCat
   class VCellAssoc         -- Vertical cell associativity
   class HCellUnitLaws      -- Horizontal cell units (naturality)
   class HCellAssoc         -- Horizontal cell associativity (naturality)
-  class IsDouble           -- Full pseudo-double category
-end DoubleCat
+  class DoubleCat          -- Full pseudo-double category
+end Double
 ```

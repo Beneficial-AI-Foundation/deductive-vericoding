@@ -21,7 +21,7 @@ import Aesop
 
 universe u v w
 
-namespace DoubleCat
+namespace Double
 
 /-! ## Layer 1: Raw Data Structures -/
 
@@ -545,14 +545,14 @@ class HCellAssoc (Obj : Type u) [VertCat.{u, v} Obj] [HorizBicat.{u, v, w} Obj]
 
 /-- A pseudo-double category with all coherence laws.
 
-    Layer 2 adds:
-    - Pentagon and triangle identities for horizontal bicategory
-    - Interchange law
-    - Unit laws for vertical and horizontal cell composition
-    - Associativity for vertical and horizontal cell composition
-    - Naturality of cell coherence isomorphisms
+    This is the full structure combining:
+    - `PreDoubleCat`: Layer 1 data (vertical category, horizontal bicategory, cells)
+    - `HorizBicatCoherence`: Pentagon and triangle identities
+    - `Interchange`: The interchange law for cells
+    - `VCellUnitLaws`, `VCellAssoc`: Vertical cell coherence
+    - `HCellUnitLaws`, `HCellAssoc`: Horizontal cell coherence (naturality)
 -/
-class IsDouble (Obj : Type u) extends PreDoubleCat.{u, v, w} Obj where
+class DoubleCat (Obj : Type u) extends PreDoubleCat.{u, v, w} Obj where
   [horizBicatCoherence : HorizBicatCoherence.{u, v, w} Obj]
   [interchange : Interchange.{u, v, w} Obj]
   [vCellUnitLaws : VCellUnitLaws.{u, v, w} Obj]
@@ -560,12 +560,12 @@ class IsDouble (Obj : Type u) extends PreDoubleCat.{u, v, w} Obj where
   [hCellUnitLaws : HCellUnitLaws.{u, v, w} Obj]
   [hCellAssoc : HCellAssoc.{u, v, w} Obj]
 
-attribute [instance] IsDouble.horizBicatCoherence
-attribute [instance] IsDouble.interchange
-attribute [instance] IsDouble.vCellUnitLaws
-attribute [instance] IsDouble.vCellAssoc
-attribute [instance] IsDouble.hCellUnitLaws
-attribute [instance] IsDouble.hCellAssoc
+attribute [instance] DoubleCat.horizBicatCoherence
+attribute [instance] DoubleCat.interchange
+attribute [instance] DoubleCat.vCellUnitLaws
+attribute [instance] DoubleCat.vCellAssoc
+attribute [instance] DoubleCat.hCellUnitLaws
+attribute [instance] DoubleCat.hCellAssoc
 
 /-! ## Example: Trivial pseudo-double category on a single object -/
 
@@ -666,9 +666,9 @@ instance : HCellAssoc Unit where
   hCellComp_assoc := fun _ _ _ => HEq.rfl
 
 /-- The trivial pseudo-double category with one object -/
-instance : IsDouble Unit where
+instance : DoubleCat Unit where
 
-end DoubleCat
+end Double
 
 /-! ## Vericode Tactic Infrastructure
 

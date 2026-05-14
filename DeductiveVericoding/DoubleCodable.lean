@@ -41,7 +41,7 @@ where `α` is code + proof that transforms an implementation of `Spec A B`
 
 namespace DoubleCodable
 
-open DoubleCat
+open Double
 
 /-! ## Section 1: Syntax (from Function.lean) -/
 
