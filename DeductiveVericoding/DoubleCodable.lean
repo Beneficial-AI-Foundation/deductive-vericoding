@@ -41,7 +41,7 @@ where `α` is code + proof that transforms an implementation of `Spec A B`
 
 namespace DoubleCodable
 
-open PseudoDoubleCat
+open DoubleCat
 
 /-! ## Section 1: Syntax (from Function.lean) -/
 
@@ -261,16 +261,19 @@ structure mentioned in Libkind-Myers.
 -/
 
 /-- Identity implementation: returns the input as a string -/
+@[aesop safe apply (rule_sets := [Vericode])]
 def showArg {P : Nat → Prop} : Codable P (fun n res => res = Val.str (Nat.repr n)) :=
   { code := ⟨.toStr .arg⟩
     correct := by intro n _; rfl }
 
 /-- Literal string implementation -/
+@[aesop safe apply (rule_sets := [Vericode])]
 def str {P : Nat → Prop} (s : String) : Codable P (fun _ res => res = Val.str s) :=
   { code := ⟨.val (.str s)⟩
     correct := by intro n _; rfl }
 
 /-- Literal nat-to-string implementation -/
+@[aesop safe apply (rule_sets := [Vericode])]
 def showNat {P : Nat → Prop} (m : Nat) : Codable P (fun _ res => res = Val.str (Nat.repr m)) :=
   { code := ⟨.toStr (.val (.nat m))⟩
     correct := by intro n _; rfl }
@@ -285,6 +288,7 @@ theorem eval_append_str {e1 e2 : Expr} {n : Nat} {s1 s2 : String}
 
     This is the key operadic structure: composing two systems horizontally
     using string concatenation as the wiring pattern. -/
+@[aesop safe apply (rule_sets := [Vericode])]
 def append {P : Nat → Prop} {x y : Nat → String}
     (r1 : Codable P (fun n res => res = Val.str (x n)))
     (r2 : Codable P (fun n res => res = Val.str (y n))) :
@@ -298,7 +302,7 @@ def append {P : Nat → Prop} {x y : Nat → String}
 
 /-! ## Section 10: The Pseudo-Double Category Instance
 
-We now instantiate the `PrePseudoDoubleCat` structure for specifications.
+We now instantiate the `PreDoubleCat` structure for specifications.
 -/
 
 /-- Vertical category structure on types with functions -/
@@ -311,12 +315,17 @@ instance : VertCat SpecObj where
   vComp_id := fun _ => rfl
 
 /-- 2-morphisms between specifications: refinement relations (lifted to Type).
-    We use `PLift` to ensure this is in `Type` rather than `Prop`. -/
+    We use `PLift` to ensure this is in `Type` rather than `Prop`.
+
+    A refinement from s1 to s2 means s2 is "more general":
+    - s2's precondition is weaker (accepts more inputs)
+    - s2's postcondition, when combined with s1's precondition, implies s1's postcondition -/
 structure SpecRefine {A B : SpecObj} (s1 s2 : Spec A B) : Type where
   /-- s2's precondition is weaker (more permissive) -/
   pre_weaker : PLift (∀ a, s1.pre a → s2.pre a)
-  /-- s2's postcondition is stronger (more specific) -/
-  post_stronger : PLift (∀ a b, s2.pre a → s2.post a b → s1.post a b)
+  /-- Under s1's precondition, s2's postcondition implies s1's postcondition.
+      This formulation allows refinements to compose properly. -/
+  post_stronger : PLift (∀ a b, s1.pre a → s2.post a b → s1.post a b)
 
 /-- Horizontal bicategory structure on types with specifications.
     Spec composition satisfies bicategory laws up to logical equivalence. -/
@@ -333,9 +342,10 @@ instance : HorizBicat SpecObj where
         -- h123 : ∀ c, (∃ b, s1.post a b ∧ s2.post b c) → s3.pre c
         -- Goal: s1.pre a ∧ ∀ b, s1.post a b → (s2.pre b ∧ ∀ c, s2.post b c → s3.pre c)
         ⟨h1, fun b hab => ⟨h12 b hab, fun c hbc => h123 c ⟨b, hab, hbc⟩⟩⟩⟩
-      post_stronger := ⟨fun _ _ _ ⟨b, hab, ⟨c, hbc, hcd⟩⟩ =>
+      post_stronger := ⟨fun _ _ ⟨⟨_, h12⟩, h123⟩ ⟨b, hab, ⟨c, hbc, hcd⟩⟩ =>
+        -- Input: ((s1⬝s2)⬝s3).pre a and (s1⬝(s2⬝s3)).post a d
         -- hab : s1.post a b, hbc : s2.post b c, hcd : s3.post c d
-        -- Goal: ∃ c', (∃ b', s1.post a b' ∧ s2.post b' c') ∧ s3.post c' d
+        -- Goal: ((s1⬝s2)⬝s3).post a d = ∃ c', (∃ b', s1.post a b' ∧ s2.post b' c') ∧ s3.post c' d
         ⟨c, ⟨b, hab, hbc⟩, hcd⟩⟩ }
   -- Inverse associator: s1 ⬝ (s2 ⬝ s3) → (s1 ⬝ s2) ⬝ s3
   hAssoc_inv := fun _ _ _ =>
@@ -346,17 +356,19 @@ instance : HorizBicat SpecObj where
         --       ∀ c, (∃ b, s1.post a b ∧ s2.post b c) → s3.pre c
         ⟨⟨h1, fun b hab => (h123 b hab).1⟩,
          fun c ⟨b, hab, hbc⟩ => (h123 b hab).2 c hbc⟩⟩
-      post_stronger := ⟨fun _ _ _ ⟨c, ⟨b, hab, hbc⟩, hcd⟩ =>
-        -- Goal: ∃ b', s1.post a b' ∧ (∃ c', s2.post b' c' ∧ s3.post c' d)
+      post_stronger := ⟨fun _ _ ⟨h1, h123⟩ ⟨c, ⟨b, hab, hbc⟩, hcd⟩ =>
+        -- Input: (s1⬝(s2⬝s3)).pre a and ((s1⬝s2)⬝s3).post a d
+        -- Goal: (s1⬝(s2⬝s3)).post a d = ∃ b', s1.post a b' ∧ (∃ c', s2.post b' c' ∧ s3.post c' d)
         ⟨b, hab, ⟨c, hbc, hcd⟩⟩⟩ }
   -- Left unitor: Spec.id ⬝ s → s
   hLeftUnitor := fun _ =>
     { pre_weaker := ⟨fun a ⟨_, h⟩ =>
         -- h : ∀ a', a = a' → s.pre a'
         h a rfl⟩
-      post_stronger := ⟨fun a _ _ hab =>
+      post_stronger := ⟨fun a _ ⟨_, h⟩ hab =>
+        -- Input: (Spec.id ⬝ s).pre a = True ∧ ∀ a', a = a' → s.pre a'
         -- hab : s.post a b
-        -- Goal: ∃ a', a = a' ∧ s.post a' b
+        -- Goal: (Spec.id ⬝ s).post a b = ∃ a', a = a' ∧ s.post a' b
         ⟨a, rfl, hab⟩⟩ }
   -- Inverse left unitor: s → Spec.id ⬝ s
   hLeftUnitor_inv := fun _ =>
@@ -364,23 +376,99 @@ instance : HorizBicat SpecObj where
         -- h : s.pre a
         -- Goal: True ∧ ∀ a', a = a' → s.pre a'
         ⟨trivial, fun _ ha' => ha' ▸ h⟩⟩
-      post_stronger := ⟨fun _ _ _ ⟨_, ha', hpost⟩ =>
+      post_stronger := ⟨fun _ _ hpre ⟨_, ha', hpost⟩ =>
+        -- Input: s.pre a and (Spec.id ⬝ s).post a b
         -- ha' : a = a', hpost : s.post a' b
+        -- Goal: s.post a b
         ha' ▸ hpost⟩ }
   -- Right unitor: s ⬝ Spec.id → s
   hRightUnitor := fun _ =>
     { pre_weaker := ⟨fun _ ⟨h, _⟩ => h⟩
-      post_stronger := ⟨fun _ b _ hab =>
-        -- Goal: ∃ b', s.post a b' ∧ b' = b
+      post_stronger := ⟨fun _ b ⟨hpre, _⟩ hab =>
+        -- Input: (s ⬝ Spec.id).pre a and s.post a b
+        -- Goal: (s ⬝ Spec.id).post a b = ∃ b', s.post a b' ∧ b' = b
         ⟨b, hab, rfl⟩⟩ }
   -- Inverse right unitor: s → s ⬝ Spec.id
   hRightUnitor_inv := fun _ =>
     { pre_weaker := ⟨fun _ h =>
         -- Goal: s.pre a ∧ ∀ b, s.post a b → True
         ⟨h, fun _ _ => trivial⟩⟩
-      post_stronger := ⟨fun _ _ _ ⟨_, hpost, hb'⟩ =>
+      post_stronger := ⟨fun _ _ hpre ⟨_, hpost, hb'⟩ =>
+        -- Input: s.pre a and (s ⬝ Spec.id).post a b
         -- hb' : b' = b, hpost : s.post a b'
+        -- Goal: s.post a b
         hb' ▸ hpost⟩ }
+
+  -- 2-morphism category structure
+  h2Id := fun _ =>
+    { pre_weaker := ⟨fun _ h => h⟩
+      post_stronger := ⟨fun _ _ _ hp => hp⟩ }
+  h2Comp := fun r1 r2 =>
+    -- r1 : SpecRefine h k, r2 : SpecRefine k m
+    -- Result: SpecRefine h m
+    { pre_weaker := ⟨fun a h => r2.pre_weaker.down a (r1.pre_weaker.down a h)⟩
+      post_stronger := ⟨fun a b hpre mpost =>
+        -- hpre : h.pre a, mpost : m.post a b
+        -- Need: h.post a b
+        -- Step 1: From h.pre, get k.pre via r1.pre_weaker
+        let kpre := r1.pre_weaker.down a hpre
+        -- Step 2: From k.pre and m.post, get k.post via r2.post_stronger
+        let kpost := r2.post_stronger.down a b kpre mpost
+        -- Step 3: From h.pre and k.post, get h.post via r1.post_stronger
+        r1.post_stronger.down a b hpre kpost⟩ }
+  h2Comp_assoc := fun _ _ _ => rfl
+  h2Id_comp := fun _ => rfl
+  h2Comp_id := fun _ => rfl
+
+  -- Left whiskering: h ⊳ r for r : k → m gives (h ⬝ k) → (h ⬝ m)
+  hWhiskerLeft := fun {_ _ _} (h : Spec _ _) {k m : Spec _ _} (r : SpecRefine k m) =>
+    { pre_weaker := ⟨fun a ⟨hpre, hk⟩ =>
+        -- hpre : h.pre a, hk : ∀ b, h.post a b → k.pre b
+        -- Goal: h.pre a ∧ ∀ b, h.post a b → m.pre b
+        ⟨hpre, fun b hab => r.pre_weaker.down b (hk b hab)⟩⟩
+      post_stronger := ⟨fun a d ⟨hpre, hk⟩ ⟨c, hac, mcd⟩ =>
+        -- hpre : h.pre a, hk : ∀ b, h.post a b → k.pre b
+        -- hac : h.post a c, mcd : m.post c d
+        -- Goal: ∃ c', h.post a c' ∧ k.post c' d
+        let kpre := hk c hac
+        let kpost := r.post_stronger.down c d kpre mcd
+        ⟨c, hac, kpost⟩⟩ }
+  -- Right whiskering: r ⊲ k for r : h → m gives (h ⬝ k) → (m ⬝ k)
+  hWhiskerRight := fun {_ _ _} {h m : Spec _ _} (r : SpecRefine h m) (k : Spec _ _) =>
+    { pre_weaker := ⟨fun a ⟨hpre, hk⟩ =>
+        -- hpre : h.pre a, hk : ∀ b, h.post a b → k.pre b
+        -- Goal: m.pre a ∧ ∀ b, m.post a b → k.pre b
+        ⟨r.pre_weaker.down a hpre, fun b mab =>
+          -- Need k.pre b from m.post a b
+          -- We know h.pre a, and m.post a b
+          -- By r.post_stronger: h.pre a → m.post a b → h.post a b
+          let hab := r.post_stronger.down a b hpre mab
+          hk b hab⟩⟩
+      post_stronger := ⟨fun a d ⟨hpre, hk⟩ ⟨c, mac, kcd⟩ =>
+        -- hpre : h.pre a, mac : m.post a c, kcd : k.post c d
+        -- Goal: ∃ c', h.post a c' ∧ k.post c' d
+        let hac := r.post_stronger.down a c hpre mac
+        ⟨c, hac, kcd⟩⟩ }
+
+  -- Isomorphism laws (hold definitionally for this representation)
+  hAssoc_hAssoc_inv := fun _ _ _ => rfl
+  hAssoc_inv_hAssoc := fun _ _ _ => rfl
+  hLeftUnitor_hLeftUnitor_inv := fun _ => rfl
+  hLeftUnitor_inv_hLeftUnitor := fun _ => rfl
+  hRightUnitor_hRightUnitor_inv := fun _ => rfl
+  hRightUnitor_inv_hRightUnitor := fun _ => rfl
+
+  -- Whiskering axioms (all hold by rfl since SpecRefine is proof-irrelevant)
+  hWhiskerLeft_id := fun _ _ => rfl
+  hWhiskerLeft_comp := @fun _ _ _ _ _ _ _ _ _ => rfl
+  hWhiskerRight_id := fun _ _ => rfl
+  hWhiskerRight_comp := @fun _ _ _ _ _ _ _ _ _ => rfl
+  id_hWhiskerLeft := @fun _ _ _ _ _ => rfl
+  hWhiskerRight_hId := @fun _ _ _ _ _ => rfl
+  hComp_hWhiskerLeft := @fun _ _ _ _ _ _ _ _ _ => rfl
+  hWhiskerRight_hComp := @fun _ _ _ _ _ _ _ _ _ => rfl
+  whisker_assoc := @fun _ _ _ _ _ _ _ _ _ => rfl
+  whisker_exchange := @fun _ _ _ _ _ _ _ _ _ => rfl
 
 /-- Cell structure for specifications.
 
@@ -481,23 +569,114 @@ instance : CellStruct SpecObj where
         -- h.post a d, need ∃ b, h.post a b ∧ d = id b = b
         ⟨d, hpost, rfl⟩⟩ }
 
-/-- Pre-pseudo-double category instance for specifications -/
-instance : PrePseudoDoubleCat SpecObj where
+  -- Cell coherence isomorphisms
+  -- These are cells with identity vertical morphisms witnessing bicategory coherence
+  -- cellHAssoc : Cell id id ((h ⬝ k) ⬝ m) (h ⬝ (k ⬝ m))
+  cellHAssoc := fun h k m =>
+    { pre_backward := ⟨fun a ⟨hpre, hkm⟩ =>
+        -- Input: (h ⬝ (k ⬝ m)).pre a
+        -- Goal: ((h ⬝ k) ⬝ m).pre a
+        ⟨⟨hpre, fun b hab => (hkm b hab).1⟩,
+         fun c ⟨b, hab, hbc⟩ => (hkm b hab).2 c hbc⟩⟩
+      pre_forward := ⟨fun a ⟨⟨hpre, hk⟩, hm⟩ =>
+        -- Input: ((h ⬝ k) ⬝ m).pre a
+        -- Goal: (h ⬝ (k ⬝ m)).pre a
+        ⟨hpre, fun b hab => ⟨hk b hab, fun c hbc => hm c ⟨b, hab, hbc⟩⟩⟩⟩
+      post_transfer := ⟨fun a d ⟨⟨_, hk⟩, hm⟩ ⟨c, ⟨b, hab, hbc⟩, hcd⟩ =>
+        -- Input: ((h ⬝ k) ⬝ m).pre and ((h ⬝ k) ⬝ m).post
+        -- Goal: (h ⬝ (k ⬝ m)).post a d
+        ⟨b, hab, ⟨c, hbc, hcd⟩⟩⟩
+      post_surj := ⟨fun a d ⟨⟨_, hk⟩, hm⟩ ⟨b, hab, ⟨c, hbc, hcd⟩⟩ =>
+        -- Input: (h ⬝ (k ⬝ m)).post a d
+        -- Goal: ∃ d', ((h ⬝ k) ⬝ m).post a d' ∧ d = id d'
+        ⟨d, ⟨c, ⟨b, hab, hbc⟩, hcd⟩, rfl⟩⟩ }
 
-/-! ## Section 11: Examples -/
+  -- cellHLeftUnitor : Cell id id (Spec.id ⬝ h) h
+  cellHLeftUnitor := fun h =>
+    { pre_backward := ⟨fun a hpre =>
+        ⟨trivial, fun _ ha' => ha' ▸ hpre⟩⟩
+      pre_forward := ⟨fun a ⟨_, hk⟩ => hk a rfl⟩
+      post_transfer := ⟨fun a b ⟨_, hk⟩ ⟨_, ha', hpost⟩ =>
+        ha' ▸ hpost⟩
+      post_surj := ⟨fun a d ⟨_, _⟩ hpost =>
+        ⟨d, ⟨a, rfl, hpost⟩, rfl⟩⟩ }
+
+  -- cellHRightUnitor : Cell id id (h ⬝ Spec.id) h
+  cellHRightUnitor := fun h =>
+    { pre_backward := ⟨fun a hpre =>
+        ⟨hpre, fun _ _ => trivial⟩⟩
+      pre_forward := ⟨fun a ⟨hpre, _⟩ => hpre⟩
+      post_transfer := ⟨fun a b ⟨hpre, _⟩ ⟨_, hpost, hb'⟩ =>
+        hb' ▸ hpost⟩
+      post_surj := ⟨fun a d ⟨_, _⟩ hpost =>
+        ⟨d, ⟨d, hpost, rfl⟩, rfl⟩⟩ }
+
+  -- Inverse associator cell
+  cellHAssoc_inv := fun h k m =>
+    { pre_backward := ⟨fun a ⟨⟨hpre, hk⟩, hm⟩ =>
+        ⟨hpre, fun b hab => ⟨hk b hab, fun c hbc => hm c ⟨b, hab, hbc⟩⟩⟩⟩
+      pre_forward := ⟨fun a ⟨hpre, hkm⟩ =>
+        ⟨⟨hpre, fun b hab => (hkm b hab).1⟩,
+         fun c ⟨b, hab, hbc⟩ => (hkm b hab).2 c hbc⟩⟩
+      post_transfer := ⟨fun a d ⟨hpre, hkm⟩ ⟨b, hab, ⟨c, hbc, hcd⟩⟩ =>
+        ⟨c, ⟨b, hab, hbc⟩, hcd⟩⟩
+      post_surj := ⟨fun a d ⟨hpre, hkm⟩ ⟨c, ⟨b, hab, hbc⟩, hcd⟩ =>
+        ⟨d, ⟨b, hab, ⟨c, hbc, hcd⟩⟩, rfl⟩⟩ }
+
+  -- Inverse left unitor cell: Cell id id h (Spec.id ⬝ h)
+  cellHLeftUnitor_inv := fun h =>
+    { pre_backward := ⟨fun a ⟨_, hk⟩ => hk a rfl⟩
+      pre_forward := ⟨fun a hpre =>
+        ⟨trivial, fun a' ha' => by subst ha'; exact hpre⟩⟩
+      post_transfer := ⟨fun a b _ hpost =>
+        ⟨a, rfl, hpost⟩⟩
+      post_surj := ⟨fun a d _ ⟨w, ha', hpost⟩ =>
+        -- ha' : a = w, hpost : h.post w d
+        -- Goal: ∃ d', h.post a d' ∧ d = d'
+        ⟨d, by subst ha'; exact hpost, rfl⟩⟩ }
+
+  -- Inverse right unitor cell: Cell id id h (h ⬝ Spec.id)
+  cellHRightUnitor_inv := fun h =>
+    { pre_backward := ⟨fun a ⟨hpre, _⟩ => hpre⟩
+      pre_forward := ⟨fun a hpre =>
+        ⟨hpre, fun _ _ => trivial⟩⟩
+      post_transfer := ⟨fun a b _ hpost =>
+        ⟨b, hpost, rfl⟩⟩
+      post_surj := ⟨fun a d _ ⟨b', hpost, hb'⟩ =>
+        -- hpost : h.post a b', hb' : b' = d
+        -- Goal: ∃ d', h.post a d' ∧ d = d'
+        ⟨d, by subst hb'; exact hpost, rfl⟩⟩ }
+
+  -- Cell coherence isomorphism inverse laws (hold by proof irrelevance of SpecCell)
+  cellHAssoc_cellHAssoc_inv := fun _ _ _ => HEq.rfl
+  cellHAssoc_inv_cellHAssoc := fun _ _ _ => HEq.rfl
+  cellHLeftUnitor_cellHLeftUnitor_inv := fun _ => HEq.rfl
+  cellHLeftUnitor_inv_cellHLeftUnitor := fun _ => HEq.rfl
+  cellHRightUnitor_cellHRightUnitor_inv := fun _ => HEq.rfl
+  cellHRightUnitor_inv_cellHRightUnitor := fun _ => HEq.rfl
+
+/-- Pre-pseudo-double category instance for specifications -/
+instance : PreDoubleCat SpecObj where
+
+/-! ## Section 11: Examples
+
+The `vericode` tactic (defined in DoubleCat.lean) automatically searches through
+combinators registered with the `Vericode` rule set. The combinators `showArg`,
+`str`, `showNat`, and `append` are registered above, so `vericode` can synthesize
+implementations by composing them. -/
 
 /-- Convert input to string and append "!" -/
 def natToStringBang : Codable (fun _ => True) (fun n res => res = Val.str (Nat.repr n ++ "!")) := by
-  exact append showArg (str "!")
+  vericode
 
 /-- Always return "hello" -/
 def constHello : Codable (fun _ => True) (fun _ res => res = Val.str "hello") := by
-  exact str "hello"
+  vericode
 
 /-- Show the number twice with a separator -/
 def showTwice : Codable (fun _ => True)
     (fun n res => res = Val.str (Nat.repr n ++ "," ++ Nat.repr n)) := by
-  exact append (append showArg (str ",")) showArg
+  vericode
 
 /-! ## Section 12: Pretty Printing -/
 
