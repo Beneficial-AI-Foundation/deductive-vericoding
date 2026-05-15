@@ -1,17 +1,16 @@
-import Loom.MonadAlgebras.WP.Basic
-
 /-!
-# Codable: Verified Printable Programs
+# Function: Verified Printable Programs
 
-This module provides a framework for synthesizing correct-by-construction programs
-that can be pretty-printed. Programs are represented as `Fctn` (functions) which
-take a natural number as input and return an expression result.
+This module provides a minimal framework for synthesizing correct-by-construction
+programs that can be pretty-printed.
 
 ## Key Types
 - `Val`: Runtime values (naturals and strings)
-- `Expr`: Pure expressions that evaluate to values (can reference the function argument)
+- `Expr`: Pure expressions that evaluate to values
 - `Fctn`: A function from `Nat` to an expression
-- `Codable P Q`: A verified function with precondition `P n` and postcondition `Q n result`
+- `Spec A B`: A specification with precondition and postcondition
+- `Implementation s`: A verified function satisfying specification `s`
+- `Codable P Q`: Alias for `Implementation (mkSpec P Q)`
 
 ## Combinators
 Build verified programs compositionally:
@@ -20,6 +19,8 @@ Build verified programs compositionally:
 - `str`: Return a string literal
 - `append`: Concatenate two string-producing programs
 -/
+
+namespace Function
 
 /-! ## Section 1: Syntax -/
 
@@ -79,95 +80,107 @@ def Expr.eval (input : Nat) : Expr → Val
 
 def Fctn.eval (f : Fctn) (n : Nat) : Val := f.body.eval n
 
-/-- Monadic evaluation for weakest precondition reasoning -/
-def Fctn.evalM (f : Fctn) (n : Nat) : Id Val := pure (f.body.eval n)
+/-! ## Section 4: Specifications -/
 
-/-! ## Section 4: Codable Programs -/
+/-- A specification from type `A` to type `B` -/
+structure Spec (A B : Type) where
+  /-- Precondition on inputs -/
+  pre : A → Prop
+  /-- Postcondition relating inputs to outputs -/
+  post : A → B → Prop
 
-/-- A Codable is a function paired with a correctness proof.
-    The proof shows that for all inputs `n`, given precondition `P n`,
-    the result satisfies postcondition `Q n result`. -/
-structure Codable (P : Nat → Prop) (Q : Nat → Val → Prop) where
-  fctn : Fctn
-  correctness : ∀ n, triple (m := Id) (l := Prop) (P n) (fctn.evalM n) (Q n)
+/-- Convert a precondition and postcondition to a specification -/
+def mkSpec (P : Nat → Prop) (Q : Nat → Val → Prop) : Spec Nat Val :=
+  { pre := P, post := Q }
 
-/-! ## Section 5: Combinators
+/-! ## Section 5: Implementations -/
 
-These combinators build verified programs compositionally.
-Each combinator constructs both the syntax and its correctness proof. -/
+/-- A verified implementation of a specification.
+    Consists of code and a proof that it satisfies the spec. -/
+structure Implementation (s : Spec Nat Val) where
+  /-- The syntactic code -/
+  code : Fctn
+  /-- Correctness: for all inputs satisfying the precondition,
+      the output satisfies the postcondition -/
+  correct : ∀ n, s.pre n → s.post n (code.eval n)
+
+/-- Codable is an implementation of a specification -/
+abbrev Codable (P : Nat → Prop) (Q : Nat → Val → Prop) :=
+  Implementation (mkSpec P Q)
+
+/-! ## Section 6: Combinators -/
 
 /-- Convert the function argument to its string representation -/
-def showArg {P : Nat → Prop} : Codable P (fun n res => res = .str (Nat.repr n)) :=
-  { fctn := ⟨.toStr .arg⟩
-    correctness := by
-      intro n
-      simp only [triple, wp, Fctn.evalM, Expr.eval, pure, liftM, monadLift,
-                 MAlg.lift, MAlg.μ, MAlgOrdered.μ, Functor.map, id]
-      intro _; trivial }
+def showArg {P : Nat → Prop} : Codable P (fun n res => res = Val.str (Nat.repr n)) :=
+  { code := ⟨.toStr .arg⟩
+    correct := fun _ _ => rfl }
 
 /-- Convert a literal natural number to its string representation -/
-def showNat {P : Nat → Prop} (m : Nat) : Codable P (fun _ res => res = .str (Nat.repr m)) :=
-  { fctn := ⟨.toStr (.val (.nat m))⟩
-    correctness := by
-      intro n
-      simp only [triple, wp, Fctn.evalM, Expr.eval, pure, liftM, monadLift,
-                 MAlg.lift, MAlg.μ, MAlgOrdered.μ, Functor.map, id]
-      intro _; trivial }
+def showNat {P : Nat → Prop} (m : Nat) : Codable P (fun _ res => res = Val.str (Nat.repr m)) :=
+  { code := ⟨.toStr (.val (.nat m))⟩
+    correct := fun _ _ => rfl }
 
 /-- Return a string literal -/
-def str {P : Nat → Prop} (s : String) : Codable P (fun _ res => res = .str s) :=
-  { fctn := ⟨.val (.str s)⟩
-    correctness := by
-      intro n
-      simp only [triple, wp, Fctn.evalM, Expr.eval, pure, liftM, monadLift,
-                 MAlg.lift, MAlg.μ, MAlgOrdered.μ, Functor.map, id]
-      intro _; trivial }
+def str {P : Nat → Prop} (s : String) : Codable P (fun _ res => res = Val.str s) :=
+  { code := ⟨.val (.str s)⟩
+    correct := fun _ _ => rfl }
+
+/-- Helper lemma: evaluating append of two string-producing expressions -/
+theorem eval_append_str {e1 e2 : Expr} {n : Nat} {s1 s2 : String}
+    (h1 : e1.eval n = Val.str s1) (h2 : e2.eval n = Val.str s2) :
+    (Expr.append e1 e2).eval n = Val.str (s1 ++ s2) := by
+  simp only [Expr.eval, h1, h2]
 
 /-- Concatenate two string-producing programs -/
 def append {P : Nat → Prop} {x y : Nat → String}
-    (r1 : Codable P (fun n res => res = .str (x n)))
-    (r2 : Codable P (fun n res => res = .str (y n))) :
-    Codable P (fun n res => res = .str (x n ++ y n)) :=
-  { fctn := ⟨.append r1.fctn.body r2.fctn.body⟩
-    correctness := by
-      intro n hP
-      -- Step 1: Extract correctness hypotheses from r1 and r2
-      have hr1 := r1.correctness n hP
-      have hr2 := r2.correctness n hP
-      -- Step 2: Unfold WP to get hr1 : r1.fctn.body.eval n = .str (x n) (and similarly for hr2)
-      simp only [wp, Fctn.evalM, liftM, monadLift,
-                 MAlg.lift, MAlg.μ, MAlgOrdered.μ, Functor.map, id, pure] at hr1 hr2 ⊢
-      -- Step 3: Simplify append evaluation using hr1 and hr2
-      simp only [Expr.eval, hr1, hr2] }
+    (r1 : Codable P (fun n res => res = Val.str (x n)))
+    (r2 : Codable P (fun n res => res = Val.str (y n))) :
+    Codable P (fun n res => res = Val.str (x n ++ y n)) :=
+  { code := ⟨.append r1.code.body r2.code.body⟩
+    correct := fun n hP =>
+      have h1 : r1.code.body.eval n = Val.str (x n) := r1.correct n hP
+      have h2 : r2.code.body.eval n = Val.str (y n) := r2.correct n hP
+      eval_append_str h1 h2 }
 
-/-! ## Section 6: Synthesis Tactic
-
-The `vericode` tactic repeatedly applies combinators to synthesize a verified program. -/
+/-! ## Section 7: Synthesis Tactic -/
 
 /-- Tactic macro for synthesizing Codable programs -/
 macro "vericode" : tactic =>
   `(tactic| repeat any_goals first | apply append | apply showArg | apply showNat | apply str)
 
-/-! ## Section 7: Examples -/
+/-! ## Section 8: Examples -/
 
 /-- Convert the input to string and append "!" -/
-def natToStringBang : Codable (fun _ => True) (fun n res => res = .str (Nat.repr n ++ "!")) := by
+def natToStringBang : Codable (fun _ => True) (fun n res => res = Val.str (Nat.repr n ++ "!")) := by
   vericode
 
 -- Evaluate the synthesized program
-#eval (natToStringBang).fctn.eval 42
+#eval natToStringBang.code.eval 42
 -- Val.str "42!"
 
 -- Print the synthesized program
-#eval (natToStringBang).fctn.pretty
+#eval natToStringBang.code.pretty
 -- "fun n => toString(n) ++ \"!\""
 
 /-- Always return "hello" regardless of input -/
-def constHello : Codable (fun _ => True) (fun _ res => res = .str "hello") := by
+def constHello : Codable (fun _ => True) (fun _ res => res = Val.str "hello") := by
   vericode
 
-#eval constHello.fctn.eval 999
+#eval constHello.code.eval 999
 -- Val.str "hello"
 
-#eval constHello.fctn.pretty
+#eval constHello.code.pretty
 -- "fun n => \"hello\""
+
+/-- Show the number twice with a separator -/
+def showTwice : Codable (fun _ => True)
+    (fun n res => res = Val.str (Nat.repr n ++ "," ++ Nat.repr n)) := by
+  vericode
+
+#eval showTwice.code.eval 7
+-- Val.str "7,7"
+
+#eval showTwice.code.pretty
+-- "fun n => toString(n) ++ \",\" ++ toString(n)"
+
+end Function
