@@ -101,6 +101,12 @@ def ConcatSolution : ConcatProblem := {
       rw [ih]
 }
 
+def IsEmptySolution : IsEmptyProblem := {
+  code := .lam fun l => .app (.listRec (.lam fun k => .true) (.lam fun p => .false)) (.mkPair .unit (.var l))
+  correct inp _ := by
+    obtain ⟨_, _⟩ := inp <;> simp [Trm'.eval, Trm.eval, Trm'.eval.go]
+}
+
 /- # HARDER PROBLEMS-/
 
 def SplitSolution : SplitProblem := {
