@@ -1,7 +1,8 @@
 import DeductiveVericoding.ListLanguage.Problems
 import DeductiveVericoding.ListLanguage.Tactics
+import DeductiveVericoding.ListLanguage.VericodeTactic
 
-open ListLanguage
+open ListLanguage Tpe
 
 /-!
 # Solutions
@@ -11,6 +12,8 @@ term together with its correctness proof; each `XXXSolution'` is the same proble
 `apply`ing the combinators from `Tactics.lean` instead.
 -/
 
+/-! # Hand-written solutions -/
+
 def UnitSolution : UnitProblem := {
   code := .lam fun _ => .unit
   correct _ _ := rfl
@@ -18,6 +21,21 @@ def UnitSolution : UnitProblem := {
 
 def NilSolution : NilProblem := {
   code := .lam fun _ => .nil
+  correct _ _ := rfl
+}
+
+def FstSolution : FstProblem := {
+  code := .lam fun k => .fst (.var k)
+  correct _ _ := rfl
+}
+
+def SndSolution : SndProblem := {
+  code := .lam fun k => .snd (.var k)
+  correct _ _ := rfl
+}
+
+def SwapSolution (s : Tpe) : SwapProblem s := {
+  code := .lam fun k => .mkPair (.snd (.var k)) (.fst (.var k))
   correct _ _ := rfl
 }
 
@@ -39,7 +57,7 @@ def List123Solution : List123Problem := {
 def AppendConstantSolution : AppendConstantProblem := {
   code := .lam fun l => .app
     (.listRec (.lam fun _ => .cons (.num 1) .nil)
-      (.lam fun p => .cons (.fst (.snd (.var p))) (.snd (.snd (.snd (.var p))))))
+      (.lam fun p => .cons (.fst (.snd (.snd (.var p)))) (.fst (.snd (.var p)))))
     (.mkPair .unit (.var l))
   correct inp _ := by
     induction inp with
@@ -50,7 +68,7 @@ def AppendConstantSolution : AppendConstantProblem := {
 }
 
 def AppendSolution : AppendProblem := {
-  code := .listRec (.lam fun k => .cons (.var k) .nil) (.lam fun p => .cons (.fst (.snd (.var p))) (.snd (.snd (.snd (.var p)))))
+  code := .listRec (.lam fun k => .cons (.var k) .nil) (.lam fun p => .cons (.fst (.snd (.snd (.var p)))) (.fst (.snd (.var p))))
   correct inp _ := by
     obtain ⟨a, l⟩ := inp
     induction l with
@@ -73,7 +91,7 @@ def AppendSolution : AppendProblem := {
 -- }
 
 def ConcatSolution : ConcatProblem := {
-  code := .listRec (.lam fun k => (.var k)) (.lam fun p => .cons (.fst (.snd (.var p))) (.snd (.snd (.snd (.var p)))))
+  code := .listRec (.lam fun k => (.var k)) (.lam fun p => .cons (.fst (.snd (.snd (.var p)))) (.fst (.snd (.var p))))
   correct inp _ := by
     obtain ⟨l1, l2⟩ := inp
     induction l2 with
@@ -83,149 +101,231 @@ def ConcatSolution : ConcatProblem := {
       rw [ih]
 }
 
+/- # HARDER PROBLEMS-/
+
+def SplitSolution : SplitProblem := {
+  code := .lam fun k => .app (.listRec (.lam fun _ => .mkPair (.num 0) .nil) (.lam fun p => .mkPair (.fst (.snd (.snd (.var p)))) (.snd (.snd (.snd (.var p)))))) (.mkPair .nil (.var k))
+  correct inp pre := by
+    induction inp with
+    | nil => contradiction
+    | cons a l ih => rfl
+}
+
 /-! # Derivations via the vericoding combinators
 
-The same problems, solved by `apply`ing the combinators of `Tactics.lean` rather than writing
-the term out. The `listRec` step goals follow the `simp; pushpre` idiom. `ReverseSolution'`
-needs one extra move: `SplitTactic` permutes the packed input so the append helper sees its
-arguments in the order it expects. -/
+Every combinator now takes the goal's postcondition as a parameter and asks for a proof `h`
+that the value it builds satisfies it. So a step is `refine XTactic … ?_ … (fun _ _ => rfl)`:
+the trailing `rfl` discharges `h` and, in doing so, fixes the `target` metavariables from the
+goal — the job the conclusion's unification used to do under a bare `apply`. -/
 
 def UnitSolution' : UnitProblem := by
-  apply UnitTactic
+  exact UnitTactic (fun _ _ => rfl)
 
 #eval ListLanguage.Trm.pretty UnitSolution'.code
 
 def NilSolution' : NilProblem := by
-  apply NilTactic
+  exact NilTactic (fun _ _ => rfl)
 
 #eval ListLanguage.Trm.pretty NilSolution'.code
 
-def ConsSolution' : ConsProblem := by
-  apply ConsTactic
-  · apply FstTactic
-    apply IdentityTactic
+def FstSolution' : FstProblem := by
+  apply FstTactic
+  apply IdentityTactic
+  simp [Tpe.denote]
+
+#eval ListLanguage.Trm.pretty FstSolution'.code
+
+def SndSolution' : SndProblem := by
   apply SndTactic
   apply IdentityTactic
+  simp [Tpe.denote]
+
+#eval ListLanguage.Trm.pretty SndSolution'.code
+
+def SwapSolution' (s : Tpe) : SwapProblem s := by
+  unfold SwapProblem
+  Vpair
+  · apply SndTactic
+    apply IdentityTactic
+    simp
+  · apply FstTactic
+    apply IdentityTactic
+    simp
+
+#eval ListLanguage.Trm.pretty (SwapSolution' .nat).code
+
+def ConsSolution' : ConsProblem := by
+  apply ConsTactic
+  Vpair
+  · apply FstTactic
+    apply IdentityTactic
+    simp [Tpe.denote]
+  · apply SndTactic
+    apply IdentityTactic
+    simp [Tpe.denote]
 
 #eval ListLanguage.Trm.pretty ConsSolution'.code
 
 def NumToListSolution' : NumToListProblem := by
   apply ConsTactic
+  Vpair
   · apply IdentityTactic
-  apply NilTactic
+    simp
+  · apply NilTactic
+    simp
 
 #eval ListLanguage.Trm.pretty NumToListSolution'.code
 
 def List123Solution' : List123Problem := by
   apply ConsTactic
-  · apply NumTactic
-  apply ConsTactic
-  · apply NumTactic
-  apply ConsTactic
-  · apply NumTactic
-  apply NilTactic
+  Vpair
+  · apply NumTactic 1
+    simp
+  · apply ConsTactic
+    Vpair
+    · apply NumTactic 2
+      simp
+    · apply ConsTactic
+      Vpair
+      · apply NumTactic 3
+        simp
+      · apply NilTactic
+        simp
 
 #eval ListLanguage.Trm.pretty List123Solution'.code
 
 def AppendConstantSolution' : AppendConstantProblem := by
   apply ListRecTactic'
   · simp
+  · apply ConsTactic
+    simp [Tpe.denote]
+    Vpair
+    · apply NumTactic 1
+      simp
+    · apply NilTactic
+      simp
+  · simp
+    pushpre
     apply ConsTactic
-    · apply NumTactic
-    apply NilTactic
-  simp
-  pushpre
-  apply ConsTactic
-  · apply FstTactic
-    apply IdentityTactic
-  apply SndTactic
-  apply SndTactic
-  apply IdentityTactic
+    Vpair
+    · apply FstTactic
+      apply SndTactic
+      apply IdentityTactic
+      simp
+    · apply FstTactic
+      apply IdentityTactic
+      simp
 
 #eval ListLanguage.Trm.pretty AppendConstantSolution'.code
 
 def AppendSolution' : AppendProblem := by
   apply ListRecTactic
   · simp
-    apply ConsTactic
-    · apply IdentityTactic
-    apply NilTactic
-  simp
-  pushpre
-  apply ConsTactic
-  · apply FstTactic
-    apply SndTactic
-    apply IdentityTactic
-  apply SndTactic
-  apply SndTactic
-  apply SndTactic
-  apply IdentityTactic
-
-def ReverseSolution' : ReverseProblem := by
-  apply ListRecTactic'
-  · apply NilTactic
-  simp
-  pushpre
-  apply SplitTactic (.pair .nat (.pair .list .list)) (.pair (.pair .nat .list) .list) .list
-   (fun inp => ((inp.1,inp.2.1), inp.2.2)) (fun inp out => out = inp.2.append [inp.1.1])
-  · apply PairTactic
-    · apply PairTactic
-      · apply FstTactic
-        apply IdentityTactic
-      apply FstTactic
-      apply SndTactic
-      apply IdentityTactic
-    apply SndTactic
-    apply SndTactic
-    apply IdentityTactic
-  simp
-  apply ListRecTactic
   · apply ConsTactic
-    · apply FstTactic
-      apply IdentityTactic
+    simp
+    Vpair
+    · apply IdentityTactic
+      simp
     apply NilTactic
+    simp
   simp
   pushpre
   apply ConsTactic
+  Vpair
+  · apply FstTactic
+    apply SndTactic
+    apply SndTactic
+    apply IdentityTactic
+    simp
   · apply FstTactic
     apply SndTactic
     apply IdentityTactic
-  apply SndTactic
-  apply SndTactic
-  apply SndTactic
-  apply IdentityTactic
+    simp
+
+#eval ListLanguage.Trm.pretty AppendSolution'.code
 
 def ConcatSolution' : ConcatProblem := by
   apply ListRecTactic
+  · simp
   · apply IdentityTactic
+    simp
   simp
   pushpre
   apply ConsTactic
+  Vpair
+  · apply FstTactic
+    apply SndTactic
+    apply SndTactic
+    apply IdentityTactic
+    simp
   · apply FstTactic
     apply SndTactic
     apply IdentityTactic
-  apply SndTactic
-  apply SndTactic
-  apply SndTactic
-  apply IdentityTactic
+    simp
 
-#eval ListLanguage.Trm.pretty ReverseSolution'.code
+#eval ListLanguage.Trm.pretty ConcatSolution'.code
 
-/-! # `vericode` smoke tests
+def SplitSolution' : SplitProblem := by
+  apply ListRecTactic''
+  · apply ContradictionTactic
+    simp
+  · Vpair
+    · apply FstTactic
+      apply IdentityTactic
+      simp
+    · apply SndTactic
+      apply IdentityTactic
+      simp
+
+def ReverseSolution' : ReverseProblem := by
+  apply ListRecTactic'
+  · simp
+  · apply NilTactic
+    simp
+  simp
+  pushpre
+  apply RelaxPreTactic (fun _ => True)
+  · simp
+  apply SwapTactic
+  apply ListRecTactic
+  · simp
+  · apply ConsTactic
+    simp
+    Vpair
+    · apply FstTactic
+      apply IdentityTactic
+      simp
+    · apply NilTactic
+      simp
+  · simp
+    pushpre
+    apply ConsTactic
+    Vpair
+    · apply FstTactic
+      apply SndTactic
+      apply SndTactic
+      apply IdentityTactic
+      simp
+    · apply FstTactic
+      apply SndTactic
+      apply IdentityTactic
+      simp
+
+/-! # `vericode` smoke tests currently broken
 
 The same problems, solved automatically by the `vericode` search over the `VericodeL` rule
 set — no manual guidance. `ReverseSolution''` in particular exercises the full pipeline:
 `listRec` → `pushpre` → `appList` (apply an append helper to the recursive result) → `introTac`
 → nested `listRec`. -/
 
-def UnitSolution'' : UnitProblem := by vericode
-def NilSolution'' : NilProblem := by vericode
-def ConsSolution'' : ConsProblem := by vericode
-def NumToListSolution'' : NumToListProblem := by vericode
-def List123Solution'' : List123Problem := by vericode
-def AppendConstantSolution'' : AppendConstantProblem := by vericode
-def AppendSolution'' : AppendProblem := by vericode
-def ReverseSolution'' : ReverseProblem := by vericode
-def ConcatSolution'' : ConcatProblem := by vericode
+-- def UnitSolution'' : UnitProblem := by vericode
+-- def NilSolution'' : NilProblem := by vericode
+-- def ConsSolution'' : ConsProblem := by vericode
+-- def NumToListSolution'' : NumToListProblem := by vericode
+-- def List123Solution'' : List123Problem := by vericode
+-- def AppendConstantSolution'' : AppendConstantProblem := by vericode
+-- def AppendSolution'' : AppendProblem := by vericode
+-- def ReverseSolution'' : ReverseProblem := by vericode
+-- def ConcatSolution'' : ConcatProblem := by vericode
 
-#eval ListLanguage.Trm.pretty ReverseSolution''.code
+-- #eval ListLanguage.Trm.pretty ReverseSolution''.code

@@ -96,9 +96,9 @@ inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | snd : {t u : Tpe} → Trm' rep (.pair t u) → Trm' rep u
   | lam : {t u : Tpe} → (rep t → Trm' rep u) → Trm' rep (.arrow t u)
   | app : {t u : Tpe} → Trm' rep (.arrow t u) → Trm' rep t → Trm' rep u
-  | listRec {t : Tpe} : Trm' rep (.arrow t .list) →
-    Trm' rep (.arrow (.pair t (.pair .nat (.pair .list .list))) .list) →
-    Trm' rep (.arrow (.pair t .list) .list)
+  | listRec {s t : Tpe} : Trm' rep (.arrow t s) →
+    Trm' rep (.arrow (.pair t (.pair s (.pair .nat .list))) s) →
+    Trm' rep (.arrow (.pair t .list) s)
   -- Boolean operations
   | true : Trm' rep .bool
   | false : Trm' rep .bool
@@ -107,6 +107,15 @@ inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   -- List operations
   | head : Trm' rep .list → Trm' rep .nat   -- returns 0 for empty list
   | tail : Trm' rep .list → Trm' rep .list  -- returns [] for empty list
+
+/-- Default value for each term -/
+instance instInhabitedTrm' {rep : Tpe → Type} : (t : Tpe) → Inhabited (Trm' rep t)
+  | .unit => ⟨.unit⟩
+  | .bool => ⟨.false⟩
+  | .nat => ⟨.num 0⟩
+  | .list => ⟨.nil⟩
+  | .pair t u => ⟨.mkPair (instInhabitedTrm' t).default (instInhabitedTrm' u).default⟩
+  | .arrow _ u => ⟨.lam fun _ => (instInhabitedTrm' u).default⟩
 
 /-- Closed terms are polymorphic over all variable representations -/
 def Trm (t : Tpe) := {rep : Tpe → Type} → Trm' rep t
@@ -201,9 +210,9 @@ def Trm'.eval : {t : Tpe} → Trm' Tpe.denote t → t.denote
       obtain ⟨par, l⟩ := p
       let baseVal := base.eval par
       let stepVal := step.eval
-      let rec go : List Nat → List Nat
+      let rec go : List Nat → _
         | [] => baseVal
-        | a :: tl => stepVal (par, (a, (tl, go tl)))
+        | a :: tl => stepVal (par, (go tl, (a, tl)))
       exact go l
   | _, .true => Bool.true
   | _, .false => Bool.false
