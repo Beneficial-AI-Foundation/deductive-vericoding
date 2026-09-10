@@ -1,75 +1,137 @@
 import DeductiveVericoding.ListLanguage.Basic
-import DeductiveVericoding.ListLanguage.VericodeRuleSet
 import Lean
-import Aesop
 
 /- # TACTICS : Here we have a collection of vericoding tactics-/
 
 open ListLanguage
-open Lean Elab Tactic Meta
 
-def NilTactic {t : Tpe} {Pre : t.denote → Prop} : Impl t .list Pre (fun _ out => out = []) :=
-  { code := .lam fun _ => .nil, correct _ _ := rfl}
+--goal closing tactics
 
-def UnitTactic {t : Tpe} {Pre : t.denote → Prop} : Impl t .unit Pre (fun _ out => out = ()) :=
-  { code := .lam fun _ => .unit, correct _ _ := rfl}
+def NilTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → List Nat → Prop}
+  (h : ∀ inp : t.denote, Pre inp → Post inp []) :
+    Impl t .list Pre Post :=
+  {code := .lam fun _ => .nil, correct := h}
 
-def TrueTactic {t : Tpe} {Pre : t.denote → Prop} : Impl t .bool Pre (fun _ out => out = true) :=
-  { code := .lam fun _ => .true, correct _ _ := rfl}
+def UnitTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → Unit → Prop}
+  (h : ∀ inp : t.denote, Pre inp → Post inp ()) :
+    Impl t .unit Pre Post :=
+  {code := .lam fun _ => .unit, correct := h}
 
-def FalseTactic {t : Tpe} {Pre : t.denote → Prop} : Impl t .bool Pre (fun _ out => out = false) :=
-  { code := .lam fun _ => .false, correct _ _ := rfl}
+def TrueTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → Bool → Prop}
+  (h : ∀ inp : t.denote, Pre inp → Post inp true) :
+    Impl t .bool Pre Post :=
+  {code := .lam fun _ => .true, correct := h}
 
-def NumTactic {t : Tpe} {Pre : t.denote → Prop} (n : Nat) : Impl t .nat Pre (fun _ out => out = n) :=
-  { code := .lam fun _ => .num n, correct _ _ := rfl}
+def FalseTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → Bool → Prop}
+  (h : ∀ inp : t.denote, Pre inp → Post inp false) :
+    Impl t .bool Pre Post :=
+  {code := .lam fun _ => .false, correct := h}
 
-def IdentityTactic {t : Tpe} {Pre : t.denote → Prop} : Impl t t Pre (fun inp out => out = inp) :=
-  { code := .lam fun k => .var k, correct _ _ := rfl}
+def NumTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → Nat → Prop} (n : Nat)
+  (h : ∀ inp : t.denote, Pre inp → Post inp n) :
+    Impl t .nat Pre Post :=
+  { code := .lam fun _ => .num n, correct := h}
 
-def FstTactic {s t u : Tpe} {Pre : s.denote → Prop} (target : s.denote → t.denote × u.denote)
-  (impl : Impl s (.pair t u) Pre (fun inp out => out = target inp)) :
-    Impl s t Pre (fun inp out => out = (target inp).1) :=
-  { code := .lam fun k => .fst (.app impl.code (.var k))
-    correct inp pre := by
-      simp [Trm.eval, Trm'.eval]
-      congr
-      exact impl.correct inp pre
+def IdentityTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → t.denote → Prop}
+  (h : ∀ inp : t.denote, Pre inp → Post inp inp) :
+    Impl t t Pre Post :=
+  { code := .lam fun k => .var k, correct := h}
+
+def ContradictionTactic {s t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → s.denote → Prop}
+  (h : ∀ inp, Pre inp → False) :
+    Impl t s Pre Post :=
+  { code := .lam fun _ => default
+    correct inp pre := False.elim <| h inp pre
   }
 
-def SndTactic {s t u : Tpe} {Pre : s.denote → Prop} (target : s.denote → t.denote × u.denote)
-  (impl : Impl s (.pair t u) Pre (fun inp out => out = target inp)) :
-    Impl s u Pre (fun inp out => out = (target inp).2) :=
-  { code := .lam fun k => .snd (.app impl.code (.var k))
-    correct inp pre := by
-      simp [Trm.eval, Trm'.eval]
-      congr
-      exact impl.correct inp pre
+/- Tactics manipulating lists and pairs-/
+
+/- reduces a list problem to a pair problem -/
+def ConsTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → List Nat → Prop}
+  (impl : Impl t (.pair .nat .list) Pre (fun inp ⟨x, xs⟩ => Post inp (x :: xs))) :
+    Impl t .list Pre Post :=
+  { code := .lam fun k => .cons (.fst (.app impl.code (.var k))) (.snd (.app impl.code (.var k)))
+    correct := impl.correct
   }
 
-def PairTactic {s t u : Tpe} {Pre : s.denote → Prop} (target1 : s.denote → t.denote) (target2 : s.denote → u.denote)
-  (impl1 : Impl s t Pre (fun inp out => out = target1 inp))
-  (impl2 : Impl s u Pre (fun inp out => out = target2 inp)) :
-    Impl s (.pair t u) Pre (fun inp out => out = (target1 inp, target2 inp)) :=
+/- reduces a pair problem to two independent impls-/
+def PairTactic {s t u : Tpe} {Pre : s.denote → Prop}
+  (Post1 :  s.denote → t.denote → Prop) (Post2 :  s.denote → u.denote → Prop)
+  (impl1 : Impl s t Pre Post1)
+  (impl2 : Impl s u Pre Post2) :
+    Impl s (.pair t u) Pre (fun inp out => Post1 inp out.1 ∧ Post2 inp out.2) :=
   { code := .lam fun k => .mkPair (.app impl1.code (.var k)) (.app impl2.code (.var k))
-    correct inp pre := by
-      simp [Trm.eval, Trm'.eval]
-      congr
-      · exact impl1.correct inp pre
-      exact impl2.correct inp pre
+    correct inp pre := ⟨impl1.correct inp pre, impl2.correct inp pre⟩
   }
 
-def ConsTactic {t : Tpe} {Pre : t.denote → Prop}
-  (target1 : t.denote → Nat) (target2 : t.denote → List Nat)
-  (impl1 : Impl t .nat Pre (fun inp out => out = target1 inp))
-  (impl2 : Impl t .list Pre (fun inp out => out = target2 inp)) :
-    Impl t .list Pre (fun inp out => out = target1 inp :: target2 inp) :=
-  { code := .lam fun k => .cons (.app impl1.code (.var k)) (.app impl2.code (.var k))
+def FstTactic {s t u : Tpe} {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
+  (impl : Impl s (.pair t u) Pre (fun inp out => Post inp out.1)) :
+    Impl s t Pre Post :=
+  { code := .lam fun k => .fst (.app impl.code (.var k)), correct := impl.correct }
+
+def SndTactic {s t u : Tpe} {Pre : s.denote → Prop} {Post : s.denote → u.denote → Prop}
+  (impl : Impl s (.pair t u) Pre (fun inp out => Post inp out.2)) :
+    Impl s u Pre Post :=
+  { code := .lam fun k => .snd (.app impl.code (.var k)), correct := impl.correct }
+
+--should be scrapped at some point
+def SwapTactic {s t u : Tpe} {Pre : s.denote × t.denote → Prop} {Post : s.denote × t.denote → u.denote → Prop}
+  (impl : Impl (.pair t s) u (fun ⟨x, y⟩ => Pre ⟨y, x⟩) (fun ⟨x, y⟩ out => Post ⟨y, x⟩ out)) :
+    Impl (.pair s t) u Pre Post :=
+  { code := .lam fun k => .app impl.code (.mkPair (.snd (.var k)) (.fst (.var k))),
+    correct inp pre := impl.correct ⟨inp.2, inp.1⟩ pre }
+
+/-Recursion Tactics-/
+
+def ListRecTactic {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.denote × List Nat → s.denote → Prop}
+  (h : ∀ p, ∀ x, ∀ xs, Pre ⟨p, (x :: xs)⟩ → Pre ⟨p, xs⟩)
+  (base : Impl t s (fun inp ↦ Pre ⟨inp, []⟩) (fun p out ↦ Post (p, []) out))
+  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (_, xs))) ↦ Post (p, xs) res) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
+    Impl (.pair t .list) s Pre Post :=
+  { code := .listRec base.code step.code
     correct inp pre := by
-      simp [Trm.eval, Trm'.eval]
-      congr
-      · exact impl1.correct inp pre
-      exact impl2.correct inp pre
+      obtain ⟨par, l⟩ := inp
+      induction l with
+      | nil => exact base.correct par (by trivial)
+      | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ (ih <| h par x xs pre)
   }
+
+--version without the parameter t
+def ListRecTactic' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
+  (h : ∀ x, ∀ xs, Pre (x :: xs) → Pre xs)
+  (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
+  (step : Impl (.pair s (.pair .nat .list)) s (fun (res, (_, xs)) ↦ Post xs res) (fun (_, (x, xs)) out ↦ Post (x :: xs) out)) :
+    Impl .list s Pre Post :=
+  {
+    code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.var l)))) (.mkPair .unit (.var k))
+    correct inp pre := by
+      induction inp with
+      | nil => exact base.correct _ (by trivial)
+      | cons x xs ih => exact step.correct ⟨_, ⟨x, xs⟩⟩ (ih <| h x xs pre)
+  }
+
+--version without actual recursion
+def ListRecTactic'' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
+  (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
+  (step : Impl (.pair .nat .list) s (fun (x, xs) => Pre (x :: xs)) (fun (x, xs) out ↦ Post (x :: xs) out)) :
+    Impl .list s Pre Post :=
+  {
+    code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.snd (.var l))))) (.mkPair .unit (.var k))
+    correct inp pre := by
+      induction inp with
+      | nil => exact base.correct _ (by trivial)
+      | cons x xs _ => exact step.correct ⟨x, xs⟩ pre
+  }
+
+/- Finally we need a tactic for relaxing Pre Conditions-/
+def RelaxPreTactic {s t : Tpe} (Pre1 Pre2 : s.denote → Prop) {Post :  s.denote → t.denote → Prop}
+  (h : ∀ inp, Pre2 inp → Pre1 inp)
+  (impl : Impl s t Pre1 Post) :
+    Impl s t Pre2 Post :=
+  { code := impl.code
+    correct inp pre := impl.correct inp <| h inp pre }
+
+/- here the human written tactics end-/
 
 --maybe this is not needed
 def SplitTactic (s t u : Tpe) {Pre : s.denote → Prop} (target : s.denote → t.denote) (Post : t.denote → u.denote → Prop)
@@ -83,362 +145,127 @@ def SplitTactic (s t u : Tpe) {Pre : s.denote → Prop} (target : s.denote → t
       exact step.correct (target inp) (by trivial)
   }
 
-def ListRecTactic {t : Tpe} {Post : t.denote × List Nat → List Nat → Prop}
-  (base : Impl t .list (fun _ ↦ True) (fun p out ↦ Post (p, []) out))
-  (step : Impl (.pair t (.pair .nat (.pair .list .list))) .list (fun (p, (_, (l, res))) ↦ Post (p, l) res) (fun (p, (a, (l, _))) out ↦ Post (p, (a :: l)) out)) :
-    Impl (.pair t .list) .list (fun _ ↦ True) Post :=
-  { code := .listRec base.code step.code
-    correct inp _ := by
-      obtain ⟨par, l⟩ := inp
-      induction l with
-      | nil => exact base.correct par (by trivial)
-      | cons a l ih => exact step.correct ⟨par, ⟨a, ⟨l, _⟩⟩⟩ ih
-  }
+/- # METATACTICS : Here we have a collection of meta tactics, in order to make applications easier-/
 
---version without the parameter t
-def ListRecTactic' {Post : List Nat → List Nat → Prop}
-  (base : Impl .unit .list (fun _ ↦ True) (fun _ out ↦ Post [] out))
-  (step : Impl (.pair .nat (.pair .list .list)) .list (fun (_, (l, res)) ↦ Post l res) (fun (a, (l, _)) out ↦ Post (a :: l) out)) :
-    Impl .list .list (fun _ ↦ True) Post :=
-  {
-    code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.var l)))) (.mkPair .unit (.var k))
-    correct inp _ := by
-      induction inp with
-      | nil => exact base.correct _ (by trivial)
-      | cons a l ih => exact step.correct ⟨a, ⟨l, _⟩⟩ ih
-  }
+open Lean Elab Tactic Meta
 
-/-- **Applied helper.** Build `Impl I t Pre (fun inp out => Cond inp (arg inp) out)` by
-    applying a helper function `step : I → (s → t)` to the argument `arg inp`. This is the
-    non-parametrized analogue of the parametrized `AppPTactic`: the helper is unconditional
-    (`fun _ => True`), so the recursion that builds it (via `IntroTactic`/`ListRecTactic`) is
-    free of the ambient precondition. -/
-def AppTactic (I s t : Tpe) (Pre : I.denote → Prop) (arg : I.denote → s.denote)
-    (Cond : I.denote → s.denote → t.denote → Prop)
-    (base : Impl I s Pre (fun inp out => out = arg inp))
-    (step : Impl I (.arrow s t) (fun _ => True) (fun inp f => ∀ x, Cond inp x (f x))) :
-    Impl I t Pre (fun inp out => Cond inp (arg inp) out) :=
-  { code := .lam fun k => .app (.app step.code (.var k)) (.app base.code (.var k))
-    correct inp pre := by
-      have hb : base.code.eval inp = arg inp := base.correct inp pre
-      show Cond inp (arg inp) (step.code.eval inp (base.code.eval inp))
-      rw [hb]
-      exact step.correct inp trivial (arg inp)
-  }
+/-- `Tpe.denote t`, as an `Expr`. -/
+def denoteExpr (t : Expr) : Expr := mkApp (mkConst ``Tpe.denote) t
 
-/-- **Introduce the argument of a helper.** Turn a solved `Impl (.pair I s) t` (with the new
-    argument paired onto the input) into an arrow-valued `Impl I (.arrow s t)`. The dual of
-    `AppTactic`; the non-parametrized analogue of the parametrized `IntroPTactic`. -/
-def IntroTactic (I s t : Tpe) (Pre : I.denote → Prop) (PairPost : (I.denote × s.denote) → t.denote → Prop)
-    (impl : Impl (.pair I s) t (fun p => Pre p.1) PairPost) :
-    Impl I (.arrow s t) Pre (fun inp f => ∀ x, PairPost (inp, x) (f x)) :=
-  { code := .lam fun k => .lam fun x => .app impl.code (.mkPair (.var k) (.var x))
-    correct inp pre := by
-      intro x
-      show PairPost (inp, x) (impl.code.eval (inp, x))
-      exact impl.correct (inp, x) pre
-  }
+/-- One reduction step for a projection out of an explicit pair: `(a, b).1 ↦ a` and
+    `(a, b).2 ↦ b`, in both the `Prod.fst`/`Prod.snd` and the raw `Expr.proj` spelling.
+    `none` if `e` is not such a redex. -/
+def pairProjStep? (e : Expr) : Option Expr :=
+  match e with
+  | .proj ``Prod i inner =>
+      if inner.isAppOfArity ``Prod.mk 4 then inner.getAppArgs[2 + i]? else none
+  | _ =>
+      if e.isAppOfArity ``Prod.fst 3 && e.appArg!.isAppOfArity ``Prod.mk 4 then
+        e.appArg!.getAppArgs[2]?
+      else if e.isAppOfArity ``Prod.snd 3 && e.appArg!.isAppOfArity ``Prod.mk 4 then
+        e.appArg!.getAppArgs[3]?
+      else none
 
-/-- Relax the postcondition to a globally-stronger one `Post'` (which may exploit the
-    precondition `Pre`). The implementation is reused verbatim; only the specification is
-    weakened. This is the non-parametrized analogue of `RelaxCondPTactic`. -/
-def RelaxTactic (I O : Tpe) (Pre : I.denote → Prop) (Post Post' : I.denote → O.denote → Prop)
-    (impl : Impl I O Pre Post')
-    (h : ∀ inp, Pre inp → ∀ out, Post' inp out → Post inp out) :
-    Impl I O Pre Post :=
-  { code := impl.code
-    correct := fun inp hpre => h inp hpre _ (impl.correct inp hpre) }
+/-- Iterate `pairProjStep?` at the head of `e`. -/
+partial def whnfPairProj (e : Expr) : Expr :=
+  match pairProjStep? e with
+  | some e' => whnfPairProj e'
+  | none => e
 
-/-- Decode an input `Tpe` built from right-nested `.pair`s into its leaf components,
-    e.g. `pair a (pair b c) ↦ #[a, b, c]`. Matches how anonymous-constructor patterns
-    `fun (x, y, z) => …` destructure a nested product. -/
-partial def decodeInputTpe (I : Expr) : Array Expr :=
-  if I.isAppOfArity ``Tpe.pair 2 then
-    #[I.getAppArgs[0]!] ++ decodeInputTpe I.getAppArgs[1]!
-  else #[I]
+/-- Reduce every `(a, b).1`/`(a, b).2` redex occurring anywhere in `e`. Needed because a
+    postcondition on a pair is usually stated via projections (`fun inp out => out.1 = … ∧
+    out.2 = …`), and we inspect it at an explicit pair `(o₁, o₂)` of fresh components. -/
+def reducePairProjs (e : Expr) : MetaM Expr :=
+  Meta.transform e (post := fun e => return .done (whnfPairProj e))
 
-/-- Build a right-nested tuple `⟨x₀, x₁, …⟩` from component values. -/
-partial def mkNestedTuple (xs : Array Expr) : MetaM Expr := do
-  if xs.size ≤ 1 then
-    pure xs[0]!
-  else
-    let rest ← mkNestedTuple (xs.extract 1 xs.size)
-    mkAppM ``Prod.mk #[xs[0]!, rest]
+/-- Take the body of a pair postcondition, already instantiated at two fresh components
+    `o₁ o₂` (i.e. `Post inp (o₁, o₂)`), and split it into the bodies of `Post1` and `Post2`.
 
-/-- `pushpre` closes the "precondition is an equality" shape that a `listRec` step goal takes
-    after `simp`:
-```
-Impl I O (fun inp => x = s) (fun inp out => … s …)
-```
-where the precondition `Pre inp` reduces to an equality `x = s` (typically `x` is the
-recursive result and `s` the term it stands for), and `s` also occurs in the postcondition.
-`pushpre` rewrites the postcondition by replacing every occurrence of `s` with `x`, i.e.
-relaxes to `Post' := fun inp out => (… s …)[s ↦ x]`, and applies `RelaxTactic`, discharging
-the side goal `∀ inp, Pre inp → ∀ out, Post' inp out → Post inp out` automatically. Only the
-implementation subgoal `Impl I O Pre Post'` remains. -/
-elab "pushpre" : tactic => do
-  let goals ← getGoals
-  if goals.isEmpty then throwError "pushpre: no goals"
-  let goal := goals.head!
-  let restGoals := goals.tail!
+    The body must reduce to a conjunction `A ∧ B` in which `A` only constrains `o₁` and `B`
+    only constrains `o₂` — precisely the shape `PairTactic` concludes with, so the split is
+    correct *by definitional unfolding* and needs no extra proof. -/
+def splitPairPost (o1 o2 body : Expr) : MetaM (Expr × Expr) := do
+  let body ← reducePairProjs (← whnf body)
+  unless body.isAppOfArity ``And 2 do
+    throwError "Vpair: cannot split the postcondition into one condition per component: it is \
+      not a conjunction `A ∧ B`:{indentExpr body}"
+  let A := body.appFn!.appArg!
+  let B := body.appArg!
+  if A.containsFVar o2.fvarId! then
+    throwError "Vpair: cannot split the postcondition: its first conjunct also constrains the \
+      second component `o₂`:{indentExpr A}"
+  if B.containsFVar o1.fvarId! then
+    throwError "Vpair: cannot split the postcondition: its second conjunct also constrains the \
+      first component `o₁`:{indentExpr B}"
+  return (A, B)
+
+/-- The work of `Vpair`: read the component types off the goal's output type, recover the two
+    postconditions from the goal's postcondition, and apply `PairTactic`. -/
+def vpairCore : TacticM Unit := do
+  let goal ← getMainGoal
   let tgt ← instantiateMVars (← whnf (← goal.getType))
   unless tgt.isAppOf ``Impl do
-    throwError "pushpre: goal is not `Impl I O Pre Post`:{indentExpr tgt}"
-  let #[I, O, Pre, Post] := tgt.getAppArgs
-    | throwError "pushpre: malformed `Impl` goal:{indentExpr tgt}"
-  let comps := decodeInputTpe I
-  let m := comps.size
-  let denote (t : Expr) : Expr := mkApp (mkConst ``Tpe.denote) t
-  let decls := comps.map fun t => (`c, fun (_ : Array Expr) => pure (denote t))
-  -- Build the relaxed postcondition `Post'` by reducing the pattern matches on a fresh
-  -- constructor tuple, then re-expressing everything via projections of a packed input.
-  let post' ← withLocalDeclsD decls fun cs => do
-    let tuple ← mkNestedTuple cs
-    let preBody ← whnf (mkApp Pre tuple)
-    unless preBody.isAppOfArity ``Eq 3 do
-      throwError "pushpre: precondition does not reduce to an equality `x = s`:{indentExpr preBody}"
-    let x := preBody.getAppArgs[1]!
-    let s := preBody.getAppArgs[2]!
-    withLocalDeclD `out (denote O) fun out => do
-      let postBody ← whnf (mkAppN Post #[tuple, out])
-      unless (postBody.find? (· == s)).isSome do
-        throwError "pushpre: the precondition's RHS does not occur in the postcondition"
-      let newBody := postBody.replace fun e => if e == s then some x else none
-      withLocalDeclD `inp (denote I) fun inp => do
-        let mut projs := #[]
-        let mut acc := inp
-        for i in [0:m] do
-          if i + 1 == m then
-            projs := projs.push acc
-          else
-            projs := projs.push (← mkAppM ``Prod.fst #[acc])
-            acc ← mkAppM ``Prod.snd #[acc]
-        let newBody' := newBody.replaceFVars cs projs
-        mkLambdaFVars #[inp, out] newBody'
-  let e := mkAppN (mkConst ``RelaxTactic) #[I, O, Pre, Post, post']
-  let gs ← goal.apply e
-  let mut implGoals := #[]
-  for g in gs do
-    if ← g.withContext do return (← whnf (← g.getType)).isAppOf ``Impl then
-      implGoals := implGoals.push g
-    else
-      -- discharge `∀ inp, Pre inp → ∀ out, Post' inp out → Post inp out`
-      setGoals [g]
-      let ids ← (Array.range m).mapM fun i =>
-        `(rcasesPat| $(mkIdent (Name.mkSimple s!"y{i}")):ident)
-      evalTactic (← `(tactic|
-        intro pinp phpre pout phpost <;>
-        obtain ⟨$ids,*⟩ := pinp <;>
-        rw [phpre] at phpost <;>
-        exact phpost))
-  setGoals (implGoals.toList ++ restGoals)
+    throwError "Vpair: goal is not `Impl s O Pre Post`:{indentExpr tgt}"
+  let #[s, O, Pre, Post] := tgt.getAppArgs
+    | throwError "Vpair: malformed `Impl` goal:{indentExpr tgt}"
+  let Ow ← whnf O
+  unless Ow.isAppOfArity ``Tpe.pair 2 do
+    throwError "Vpair: the output type of the goal is not a pair:{indentExpr Ow}"
+  let #[t, u] := Ow.getAppArgs
+    | throwError "Vpair: malformed pair type:{indentExpr Ow}"
+  -- Recover `Post1` and `Post2` by inspecting `Post` at an explicit pair of fresh components.
+  let (post1, post2) ←
+    withLocalDeclD `inp (denoteExpr s) fun inp =>
+    withLocalDeclD `o₁ (denoteExpr t) fun o1 =>
+    withLocalDeclD `o₂ (denoteExpr u) fun o2 => do
+      let out ← mkAppM ``Prod.mk #[o1, o2]
+      let (A, B) ← splitPairPost o1 o2 (mkAppN Post #[inp, out])
+      return (← mkLambdaFVars #[inp, o1] A, ← mkLambdaFVars #[inp, o2] B)
+  let gs ← goal.apply (mkAppN (mkConst ``PairTactic) #[s, t, u, Pre, post1, post2])
+  replaceMainGoal gs
 
-/-! # THE `vericode` TACTIC
+/-- **`Vpair` : `PairTactic` with the types and the two postconditions inferred.**
 
-`vericode` is a backtracking tree search over the vericoding combinators, implemented on top
-of aesop's `VericodeL` rule set — the non-parametrized analogue of `vericodeP`.
+On a goal
+```
+Impl s (.pair t u) Pre (fun inp out => A[out.1] ∧ B[out.2])
+```
+`Vpair` reads the component types `t` and `u` off the goal's output type and recovers
+`Post1 := fun inp o₁ => A[o₁]` and `Post2 := fun inp o₂ => B[o₂]` from the goal's
+postcondition, then applies `PairTactic`. So instead of
+```
+refine PairTactic (s := …) (t := …) (u := …) (fun inp out => …) (fun inp out => …) ?_ ?_
+```
+one just writes `Vpair`, which leaves the two independent subgoals `Impl s t Pre Post1` and
+`Impl s u Pre Post2`.
 
-The value-producing combinators (`ConsTactic`, `ListRecTactic`, `NumTactic`, …) recover their
-higher-order arguments — the `target`s and the `Post` invariant — by ordinary congruence
-during `apply`, so they need no custom front-ends (à la `introP`/`listRecP`): they are plain
-`apply` rules. They run at **`default` transparency** so that a postcondition presented as a
-*match* (from an anonymous-constructor lambda `fun ⟨x, xs⟩ out => …`) reduces via structure-eta
-and the `target` metavariables get solved.
+The postcondition is inspected at an explicit pair `(o₁, o₂)` of fresh components, so a
+postcondition written as a match on the output (`fun inp ⟨x, xs⟩ => …`, as produced by
+`ConsTactic`) and one written with projections (`fun inp out => out.1 = … ∧ out.2 = …`, as
+produced by `simp`) are both recognised.
 
-Two things get special handling:
-* **projections.** `FstTactic`/`SndTactic` each leave the *discarded* component's type as a
-  metavariable, resolved only by a later `IdentityTactic`; aesop reconstructs the proof across
-  that shared metavariable and fills it with `sorry`. So projection goals are closed instead by
-  `projClose`, a front-end that builds the *entire* `.fst`/`.snd`/`.var` term at once — a fully
-  concrete term with no metavariables for aesop to mishandle.
-* **`pushpre`** is an elaborator, wrapped as a `tactic` rule.
-
-Rule phases:
-* **goal closers are `safe`** (`NilTactic`, `UnitTactic`, `TrueTactic`, `FalseTactic`,
-  `NumTactic`, and `projClose`): each fully closes a goal, so committing is never a mistake.
-* **recursion (`ListRecTactic`, `ListRecTactic'`) is `unsafe 90%`** — preferred, backtrackable.
-* **`ConsTactic` is `unsafe 70%`**.
-* **`pushpre` is `unsafe 95%` `tactic`**: aesop's norm phase runs `simp` first, exposing the
-  `Pre → Post` shape it consumes (mirroring the manual `simp; pushpre` idiom). On non-step
-  goals it just fails and the search moves on. -/
-
-/-- If `e` is a chain of product projections of `root`, return the projections outermost-first
-    (`true = .1`, `false = .2`); `some []` if `e` is `root` itself; `none` otherwise. -/
-partial def projPath (root e : Expr) : Option (List Bool) :=
-  if e == root then some []
-  else if e.isAppOfArity ``Prod.fst 3 then (projPath root e.appArg!).map (true :: ·)
-  else if e.isAppOfArity ``Prod.snd 3 then (projPath root e.appArg!).map (false :: ·)
-  else match e with
-    | .proj ``Prod 0 inner => (projPath root inner).map (true :: ·)
-    | .proj ``Prod 1 inner => (projPath root inner).map (false :: ·)
-    | _ => none
-
-/-- Close a goal `Impl s O Pre (fun inp out => out = π inp)`, where `π` is a (possibly empty)
-    chain of product projections of the input, by building the whole `.fst`/`.snd`/`.var`
-    implementation term in one shot and closing with `rfl`. Fails on any other goal. -/
-elab "projClose" : tactic => do
-  let goal ← getMainGoal
-  let tgt ← instantiateMVars (← whnf (← goal.getType))
-  unless tgt.isAppOf ``Impl do throwError "projClose: not an `Impl` goal"
-  let #[_s, _O, _Pre, goalCond] := tgt.getAppArgs
-    | throwError "projClose: malformed `Impl` goal"
-  let path ← lambdaTelescope goalCond fun bs body => do
-    unless bs.size == 2 do throwError "projClose: condition is not `fun inp out => …`"
-    let out := bs[1]!
-    let body ← whnf body
-    unless body.isAppOfArity ``Eq 3 && body.getAppArgs[1]! == out do
-      throwError "projClose: condition is not `out = …`"
-    match projPath bs[0]! body.getAppArgs[2]! with
-    | some p => pure p
-    | none => throwError "projClose: RHS is not a projection of the input"
-  let mut proj ← `(term| .var k)
-  for p in path.reverse do
-    proj ← if p then `(term| .fst $proj) else `(term| .snd $proj)
-  evalTactic (← `(tactic| exact { code := .lam fun k => $proj, correct := fun _ _ => rfl }))
-
-attribute [aesop safe apply (transparency := default) (rule_sets := [VericodeL])]
-  NilTactic UnitTactic TrueTactic FalseTactic NumTactic
-
-@[aesop safe tactic (rule_sets := [VericodeL])]
-def projCloseRule : TacticM Unit := do evalTactic (← `(tactic| projClose))
-
-attribute [aesop unsafe 90% apply (transparency := default) (rule_sets := [VericodeL])]
-  ListRecTactic ListRecTactic'
-
-attribute [aesop unsafe 70% apply (transparency := default) (rule_sets := [VericodeL])]
-  ConsTactic
-
-@[aesop unsafe 95% tactic (rule_sets := [VericodeL])]
-def pushpreRule : TacticM Unit := do evalTactic (← `(tactic| pushpre))
-
-/-! ## Applying a helper function to a sub-list
-
-`Reverse` (and any `out = F[sublist]` goal) is closed by *applying a helper function to a
-sub-list of the input*, the non-parametrized counterpart of the parametrized `appListP`:
-
-* `appList` (a `RuleTac`) spots each list-valued projection `c` of the input inside the
-  right-hand side and applies `AppTactic`, leaving `base := out = c` (closed by `projClose`)
-  and a helper spec `step := ∀ x, f x = rhs[c ↦ x]`.
-* `introTac` introduces the helper's argument, pairing it onto the input, so the helper spec
-  becomes an ordinary `.list` goal `Impl (.pair I .list) .list (fun _ => True) …` — which
-  `ListRecTactic` then folds. Because `AppTactic`'s helper is unconditional, this inner goal
-  is precondition-free, exactly what `ListRecTactic` needs. -/
-
-/-- Front-end for `IntroTactic` (cf. `introP`): reconstruct the residual pair-condition
-    `PairPost` from a goal `Impl I (.arrow s t) Pre (fun inp f => ∀ x, body)` where `f` occurs
-    only as `f x`, and apply `IntroTactic`, leaving the single paired-input subgoal. -/
-elab "introTac" : tactic => do
-  let goal ← getMainGoal
-  let tgt ← instantiateMVars (← whnf (← goal.getType))
-  unless tgt.isAppOf ``Impl do throwError "introTac: goal is not `Impl`:{indentExpr tgt}"
-  let #[I, T, Pre, goalCond] := tgt.getAppArgs
-    | throwError "introTac: malformed `Impl` goal"
-  let Tw ← whnf T
-  unless Tw.isAppOf ``Tpe.arrow do
-    throwError "introTac: goal type is not an arrow:{indentExpr Tw}"
-  let #[s, t] := Tw.getAppArgs
-    | throwError "introTac: malformed arrow type"
-  let pairPost ← lambdaTelescope goalCond fun bs body => do
-    unless bs.size == 2 do throwError "introTac: condition is not `fun inp f => …`"
-    let inp := bs[0]!
-    let f := bs[1]!
-    let body ← whnf body
-    unless body.isForall do
-      throwError "introTac: condition body must start with `∀ x, …`:{indentExpr body}"
-    forallBoundedTelescope body (some 1) fun xs ib => do
-      let x := xs[0]!
-      let fx := mkApp f x
-      let pairTy ← mkAppM ``Prod #[mkApp (mkConst ``Tpe.denote) I, mkApp (mkConst ``Tpe.denote) s]
-      let outTy := mkApp (mkConst ``Tpe.denote) t
-      withLocalDeclD `p pairTy fun p => do
-      withLocalDeclD `out outTy fun out => do
-        let p1 ← mkAppM ``Prod.fst #[p]
-        let p2 ← mkAppM ``Prod.snd #[p]
-        let ib := ib.replace fun e =>
-          if e == fx then some out
-          else if e == inp then some p1
-          else if e == x then some p2
-          else none
-        if ib.containsFVar inp.fvarId! || ib.containsFVar x.fvarId! || ib.containsFVar f.fvarId! then
-          throwError "introTac: `f` occurs other than as `f x`, or the argument escapes"
-        mkLambdaFVars #[p, out] ib
-  liftMetaTactic fun g => g.apply (mkAppN (mkConst ``IntroTactic) #[I, s, t, Pre, pairPost])
-
-@[aesop unsafe 40% tactic (rule_sets := [VericodeL])]
-def introTacRule : TacticM Unit := do evalTactic (← `(tactic| introTac))
-
-/-- Collect every list-valued projection of `inp` occurring as a subterm of `e`. These are the
-    candidate sub-lists a helper (built by `listRec`) can be applied to. -/
-partial def collectListProjs (inp listNat e : Expr) : MetaM (Array Expr) := do
-  let mut acc : Array Expr := #[]
-  if (projPath inp e).isSome then
-    if ← isDefEq (← inferType e) listNat then acc := acc.push e
-  let children : Array Expr := match e with
-    | .app f a         => #[f, a]
-    | .lam _ d b _     => #[d, b]
-    | .forallE _ d b _ => #[d, b]
-    | .letE _ ty v b _ => #[ty, v, b]
-    | .mdata _ b       => #[b]
-    | .proj _ _ b      => #[b]
-    | _                => #[]
-  for c in children do
-    acc := acc ++ (← collectListProjs inp listNat c)
-  return acc
-
-open Aesop in
-/-- `appList`: on a goal `Impl I .list Pre (fun inp out => out = rhs)`, for each list-valued
-    projection `c` of the input occurring properly inside `rhs`, apply `AppTactic` with
-    `arg := fun inp => c` and `Cond := fun inp x out => out = rhs[c ↦ x]`. One backtrackable
-    alternative per candidate (modelled on the parametrized `appListP`). -/
-def appList : Aesop.RuleTac := fun input => input.goal.withContext do
-  let tgt ← whnf (← input.goal.getType)
-  unless tgt.isAppOf ``Impl do throwError "appList: goal is not `Impl`"
-  let #[I, O, Pre, goalCond] := tgt.getAppArgs | throwError "appList: malformed `Impl` goal"
-  unless (← whnf O).isConstOf ``Tpe.list do throwError "appList: goal type is not `.list`"
-  let listNat ← mkAppM ``List #[mkConst ``Nat]
-  let es ← lambdaTelescope goalCond fun bs body => do
-    unless bs.size == 2 do throwError "appList: unexpected condition shape"
-    let inp := bs[0]!
-    let out := bs[1]!
-    let body ← whnf body
-    unless body.isAppOfArity ``Eq 3 && body.getAppArgs[1]! == out do
-      throwError "appList: condition is not `out = rhs`"
-    let rhs := body.getAppArgs[2]!
-    let raw ← collectListProjs inp listNat rhs
-    let cands := raw.foldl (init := (#[] : Array Expr))
-      fun acc c => if acc.any (· == c) || c == rhs then acc else acc.push c
-    if cands.isEmpty then throwError "appList: no proper list-projection candidates"
-    let listTpe := mkConst ``Tpe.list
-    cands.mapM fun c => do
-      let arg ← mkLambdaFVars #[inp] c
-      withLocalDeclD `x listNat fun x => do
-        let rhs' := rhs.replace fun e => if e == c then some x else none
-        let cond ← mkLambdaFVars #[inp, x, out] (← mkEq out rhs')
-        pure <| mkAppN (mkConst ``AppTactic) #[I, listTpe, listTpe, Pre, arg, cond]
-  let initialState ← saveState
-  let mut rapps : Array RuleApplication := #[]
-  for e in es do
+A postcondition that is still an *equation* between the built output and a target — `out = (a, b)`
+or `out.1 :: out.2 = l` — is not literally a conjunction, and componentwise equality is only
+propositionally (not definitionally) the same as equality of the constructed values. `Vpair`
+therefore first tries the split as is, and on failure splits the equation with
+`simp only [Tpe.denote, Prod.ext_iff, Prod.mk.injEq, List.cons.injEq]` and retries.
+It fails, reporting the shape it could not handle, when the two components cannot be
+separated — e.g. when a conjunct constrains both of them. -/
+elab "Vpair" : tactic => do
+  let st ← saveState
+  try
+    vpairCore
+  catch e =>
+    st.restore
+    -- The postcondition is an equation between the built pair and a target: split it first.
     try
-      let gs ← input.goal.apply e
-      let postState ← saveState
-      let subgoals ← gs.toArray.mapM (mvarIdToSubgoal input.goal ·)
-      rapps := rapps.push
-        { goals := subgoals, postState, scriptSteps? := none, successProbability? := none }
-    catch _ => pure ()
-    finally restoreState initialState
-  if rapps.isEmpty then throwError "appList: no candidate applied"
-  return { applications := rapps }
-
-attribute [aesop unsafe 20% (rule_sets := [VericodeL]) tactic] appList
-
-/-- Search for a vericoding derivation by backtracking over the `VericodeL` rule set.
-
-`vericode [f, g, …]` additionally hands `f`, `g`, … to aesop as **norm-simp** lemmas (as in
-`simp [f, g]`), to expose problem-specific definitions the combinators would not otherwise
-see through. -/
-syntax "vericode" (" [" ident,* "]")? : tactic
-macro_rules
-  | `(tactic| vericode)         => `(tactic| aesop (rule_sets := [VericodeL]))
-  | `(tactic| vericode [$ls,*]) => do
-      let rules ← ls.getElems.mapM fun l => `(Aesop.rule_expr| norm simp $l:ident)
-      `(tactic| aesop (rule_sets := [VericodeL]) (add $rules,*))
+      evalTactic (← `(tactic|
+        simp only [Tpe.denote, Prod.ext_iff, Prod.mk.injEq, List.cons.injEq]))
+    catch _ =>
+      st.restore
+      throw e
+    try
+      vpairCore
+    catch _ =>
+      st.restore
+      throw e
