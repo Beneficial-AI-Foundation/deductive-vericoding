@@ -39,10 +39,6 @@ abbrev WitnessProblem := Impl (.pair .nat .nat) .nat (fun _ => True) WitnessSpec
 
 theorem witness_left (p : Nat × Nat) (out : Nat) (h : out = p.1) : WitnessSpec p out := Or.inl h
 
-def WitnessSolution : WitnessProblem := by vericode [witness_left]
-
-#eval ListLanguage.Trm.pretty WitnessSolution.code
-
 /-- Compare two numbers, but only *soundly*: the answer is pinned down except when `p.1 = p.2`,
 where both booleans are correct. -/
 def CmpSpec (p : Nat × Nat) (out : Bool) : Prop :=
@@ -56,10 +52,6 @@ theorem cmp_true (p : Nat × Nat) (out : Bool) (h : p.1 ≤ p.2) (h2 : out = tru
 theorem cmp_false (p : Nat × Nat) (out : Bool) (h : ¬ p.1 ≤ p.2) (h2 : out = false) :
     CmpSpec p out := by subst h2; exact ⟨by simp, fun _ => Nat.le_of_not_le h⟩
 
-def CmpSolution : CmpProblem := by vericode [cmp_true, cmp_false]
-
-#eval ListLanguage.Trm.pretty CmpSolution.code
-
 /-- *Any* upper bound of two numbers — infinitely many correct outputs. Without arithmetic the
 only ones reachable are `p.1` and `p.2`, so the derivation is forced to compare them. -/
 def UBSpec (p : Nat × Nat) (out : Nat) : Prop := p.1 ≤ out ∧ p.2 ≤ out
@@ -71,10 +63,6 @@ theorem ub_left (p : Nat × Nat) (out : Nat) (h : p.2 ≤ p.1) (h2 : out = p.1) 
 
 theorem ub_right (p : Nat × Nat) (out : Nat) (h : p.1 ≤ p.2) (h2 : out = p.2) : UBSpec p out := by
   subst h2; exact ⟨h, le_refl _⟩
-
-def UBSolution : UBProblem := by vericode [ub_left, ub_right]
-
-#eval ListLanguage.Trm.pretty UBSolution.code
 
 /-- Sort a pair. A relational specification with a *pair-valued* output. -/
 def OrderSpec (p : Nat × Nat) (out : Nat × Nat) : Prop :=
@@ -88,10 +76,6 @@ theorem order_id (p : Nat × Nat) (out : Nat × Nat) (h : p.1 ≤ p.2) (h2 : out
 theorem order_swap (p : Nat × Nat) (out : Nat × Nat) (h : ¬ p.1 ≤ p.2) (h2 : out = (p.2, p.1)) :
     OrderSpec p out := by subst h2; exact ⟨Nat.le_of_not_le h, Or.inr rfl⟩
 
-def OrderSolution : OrderProblem := by vericode [order_id, order_swap]
-
-#eval ListLanguage.Trm.pretty OrderSolution.code
-
 /-! ## Lists -/
 
 /-- Return *any* permutation of the input — the most ambiguous specification in the file. The
@@ -99,10 +83,6 @@ identity is the cheapest witness, and that is what `vericode` finds. -/
 abbrev PermProblem := Impl .list .list (fun _ => True) (fun l out => l.Perm out)
 
 theorem perm_of_eq (l out : List Nat) (h : out = l) : l.Perm out := h ▸ List.Perm.refl l
-
-def PermSolution : PermProblem := by vericode [perm_of_eq]
-
-#eval ListLanguage.Trm.pretty PermSolution.code
 
 /-- The last element of a list, `0` for the empty list. -/
 def last : List Nat → Nat
@@ -137,11 +117,6 @@ theorem AppendSpec_cons' (a b : Nat) (l1 l2 l3 : List Nat) (h : AppendSpec (a, l
     (h2 : l3 = b :: l2) : AppendSpec (a, b :: l1) l3 :=
   h2 ▸ AppendSpec_cons a b l1 l2 h
 
-def AppendSolution_hard : AppendProblem_hard := by
-  vericode [AppendSpec_cons', AppendSpec_empty]
-
-#eval ListLanguage.Trm.pretty AppendSolution_hard.code
-
 /-- Keep exactly the elements of `l` that are `≤ a`, specified by sublist-ness and membership
 rather than by `List.filter`.
 
@@ -170,11 +145,6 @@ theorem FilterSpec_drop (a b : Nat) (l res out : List Nat) (hres : FilterSpec (a
   obtain ⟨h1, h2, h3⟩ := hres
   subst h
   refine ⟨h1.cons _, ?_, ?_⟩ <;> grind
-
-def FilterSolution : FilterProblem := by
-  vericode [FilterSpec_nil, FilterSpec_keep, FilterSpec_drop]
-
-#eval ListLanguage.Trm.pretty FilterSolution.code
 
 /-! ## Folds at other types
 
@@ -222,11 +192,6 @@ theorem MaxListSpec_new (b : Nat) (l : List Nat) (res out : Nat) (hres : MaxList
   · exact le_refl _
   · exact le_trans (hres.1 x hx) (Nat.le_of_not_le hb)
 
-def MaxListSolution : MaxListProblem := by
-  vericode [MaxListSpec_nil, MaxListSpec_keep, MaxListSpec_new]
-
-#eval ListLanguage.Trm.pretty MaxListSolution.code
-
 /-- The smallest element of a **non-empty** list, the list being given as `a :: l`.
 
 The minimum has no identity element to start a fold from — `0` works for `max` but there is no
@@ -260,11 +225,6 @@ theorem MinSpec_keep (a b : Nat) (l : List Nat) (res out : Nat) (hres : MinSpec 
   · exact Nat.le_of_not_le hb
   · exact hres.1.2 x hx
 
-def MinSolution : MinProblem := by
-  vericode [MinSpec_nil, MinSpec_new, MinSpec_keep]
-
-#eval ListLanguage.Trm.pretty MinSolution.code
-
 /-- Are all elements of `l` at most `a`? The first `list → bool` fold.
 
 Stated *soundly in both directions* rather than as an `Iff`, so the two conjuncts are separate
@@ -294,11 +254,6 @@ theorem AllLESpec_drop (a b : Nat) (l : List Nat) (out : Bool)
     (hb : ¬ b ≤ a) (h : out = false) : AllLESpec (a, b :: l) out := by
   subst h
   exact ⟨by simp, fun _ => ⟨b, List.mem_cons_self .., hb⟩⟩
-
-def AllLESolution : AllLEProblem := by
-  vericode [AllLESpec_nil, AllLESpec_keep, AllLESpec_drop]
-
-#eval ListLanguage.Trm.pretty AllLESolution.code
 
 /-- Partition `l` around the pivot `a`. A `list → pair` fold, and the one problem in this file
 that was written up as unreachable *before* `listRec` was generalised.
@@ -331,11 +286,6 @@ theorem PartSpec_drop (a b : Nat) (l : List Nat) (res out : List Nat × List Nat
   obtain ⟨h1, h2, h3⟩ := hres
   refine ⟨?_, h2, by grind⟩
   simpa using (List.perm_middle.trans (h1.cons b))
-
-def PartSolution : PartProblem := by
-  vericode [PartSpec_nil, PartSpec_keep, PartSpec_drop]
-
-#eval ListLanguage.Trm.pretty PartSolution.code
 
 /-! ### Two accumulators in one pass
 
@@ -416,20 +366,6 @@ theorem MinMaxSpec_newMax (a b : Nat) (l : List Nat) (res out : Nat × Nat)
     · exact le_refl _
     · exact le_trans (hM2 x hx) (Nat.le_of_not_le h2)
 
-def MinMaxSolution : MinMaxProblem := by
-  apply ListRecTactic
-  · intro _ _ _ _; trivial
-  · vericode [MinMaxSpec_nil]
-  -- the head is below the running minimum: it becomes the new minimum
-  refine CasesTactic (fun inp => Nat.ble inp.2.2.1 inp.2.1.1) (by vericode) ?_ ?_
-  · vericode [MinMaxSpec_newMin]
-  -- otherwise compare it against the running maximum
-  refine CasesTactic (fun inp => Nat.ble inp.2.2.1 inp.2.1.2) (by vericode) ?_ ?_
-  · vericode [MinMaxSpec_keep]
-  vericode [MinMaxSpec_newMax]
-
-#eval ListLanguage.Trm.pretty MinMaxSolution.code
-
 /-! ## Merging two sorted lists
 
 The one problem here that `vericode` cannot start on its own. Two reasons: the `ListRecTactic`
@@ -447,27 +383,6 @@ theorem MergeSpec_nil (l1 out : List Nat) (h : Ordered l1) :
     MergeSpec (l1, []) out ↔ out = l1 := by
   simp only [MergeSpec, List.append_nil]
   exact ⟨fun hs => (SortedOrdered_iff l1 out h).mp hs, fun he => by subst he; exact ⟨h, .refl _⟩⟩
-
-def MergeSolution : MergeProblem := by
-  apply ListRecTactic
-  · rintro p a l ⟨h1, _⟩
-    exact ⟨h1, by cases l <;> simp_all [Ordered]⟩
-  · vericode [MergeSpec_nil]
-  -- the merged tail `res` is already sorted, so merging `a` in is exactly an insertion
-  refine RelaxPostTactic _ (fun (_l1, res, a, _l2) out => Sorted (a :: res) out) ?_ ?_
-  · refine RelaxPreTactic (fun (_l1, res, _a, _l2) => Ordered res) (fun _ pre => pre.2.1) ?_
-    refine SplitTactic (.pair .list (.pair .list (.pair .nat .list))) (.pair .nat .list) .list
-      (fun (_l1, res, a, _l2) => (a, res)) (fun (a, res) out => Sorted (a :: res) out) ?_ ?_
-    · vericode
-    refine RelaxPreTactic (fun (_a, res) => Ordered res) ?_ ?_
-    · intro (a, res) ⟨s, hs1, _⟩
-      have : res = s.2.1 := by grind
-      exact this ▸ hs1
-    exact InsertionSolution
-  rintro ⟨l1, res, a, l2⟩ ⟨-, -, hperm⟩ out ⟨ho, hp⟩
-  exact ⟨ho, (List.perm_middle.trans (hperm.cons a)).trans hp⟩
-
-#eval ListLanguage.Trm.pretty MergeSolution.code
 
 /-! ## The frontier
 
