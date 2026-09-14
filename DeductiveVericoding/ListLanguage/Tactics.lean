@@ -94,14 +94,14 @@ def SwapTactic {s t u : Tpe} {Pre : s.denote × t.denote → Prop} {Post : s.den
 def ListRecTactic {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.denote × List Nat → s.denote → Prop}
   (h : ∀ p, ∀ x, ∀ xs, Pre ⟨p, (x :: xs)⟩ → Pre ⟨p, xs⟩)
   (base : Impl t s (fun inp ↦ Pre ⟨inp, []⟩) (fun p out ↦ Post (p, []) out))
-  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (_, xs))) ↦ Post (p, xs) res) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
+  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (x, xs))) ↦ Post (p, xs) res ∧ Pre (p, x :: xs)) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
     Impl (.pair t .list) s Pre Post :=
   { code := .listRec base.code step.code
     correct inp pre := by
       obtain ⟨par, l⟩ := inp
       induction l with
       | nil => exact base.correct par (by trivial)
-      | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ (ih <| h par x xs pre)
+      | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ ⟨ih <| h par x xs pre, pre⟩
   }
 
 --version without the parameter t
