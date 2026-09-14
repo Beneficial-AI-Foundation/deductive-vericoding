@@ -33,10 +33,6 @@ abbrev ReverseProblem := Impl .list .list (fun _ => True) (fun l out => out = l.
 
 abbrev ConcatProblem := Impl (.pair .list .list) .list (fun _ => True) (fun ⟨l1, l2⟩ out => out = l2.append l1)
 
-/-- The larger of two numbers. Stated as a predicate rather than as `out = …` so that solving it
-requires *deciding* something: the implementation has to compare `x` and `y`. (The argument order
-keeps `out` off the end, so the postcondition below does not eta-reduce to a partial application,
-which nothing could unfold.) -/
 def MaxSpec (out x y : Nat) : Prop := out = if x ≤ y then y else x
 
 abbrev MaxProblem := Impl (.pair .nat .nat) .nat (fun _ => True) (fun p out => MaxSpec out p.1 p.2)
