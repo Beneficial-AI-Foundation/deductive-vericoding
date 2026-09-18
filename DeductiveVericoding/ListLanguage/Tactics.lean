@@ -93,60 +93,79 @@ def SwapTactic {s t u : Tpe} {Pre : s.denote × t.denote → Prop} {Post : s.den
 
 /-Recursion Tactics-/
 
-def ListRecTactic {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.denote × List Nat → s.denote → Prop}
-  (h : ∀ p, ∀ x, ∀ xs, Pre ⟨p, (x :: xs)⟩ → Pre ⟨p, xs⟩)
-  (base : Impl t s (fun inp ↦ Pre ⟨inp, []⟩) (fun p out ↦ Post (p, []) out))
-  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (x, xs))) ↦ Post (p, xs) res ∧ Pre (p, x :: xs)) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
-    Impl (.pair t .list) s Pre Post :=
+/- The four `ListRec*` combinators recurse over an arbitrary `ListLike` container `c` with
+element type `e`, rather than over `List Nat`. `ListLike.ind` replaces `induction l`, and the
+`Trm'.eval_listRec_*` equations replace the definitional unfolding the `List Nat` versions
+relied on. Instantiating `c := .list`, `e := .nat` recovers the old behaviour, which is what
+every current call site does. -/
+def ListRecTactic {s t c e : Tpe} [ListTpe c e]
+  {Pre : t.denote × c.denote → Prop} {Post : t.denote × c.denote → s.denote → Prop}
+  (h : ∀ p, ∀ x, ∀ xs, Pre ⟨p, ListLike.cons x xs⟩ → Pre ⟨p, xs⟩)
+  (base : Impl t s (fun inp ↦ Pre ⟨inp, ListLike.nil⟩) (fun p out ↦ Post (p, ListLike.nil) out))
+  (step : Impl (.pair t (.pair s (.pair e c))) s (fun (p, (res, (x, xs))) ↦ Post (p, xs) res ∧ Pre (p, ListLike.cons x xs)) (fun (p, (_, (x, xs))) out ↦ Post (p, (ListLike.cons x xs)) out)) :
+    Impl (.pair t c) s Pre Post :=
   { code := .listRec base.code step.code
     correct inp pre := by
       obtain ⟨par, l⟩ := inp
-      induction l with
-      | nil => exact base.correct par (by trivial)
-      | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ ⟨ih <| h par x xs pre, pre⟩
+      induction l using ListLike.ind with
+      | base => simpa [Trm.eval] using base.correct par (by trivial)
+      | step x xs ih =>
+        simp only [Trm.eval, Trm'.eval_listRec_cons]
+        exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩
+          ⟨by simpa [Trm.eval] using ih (h par x xs pre), pre⟩
   }
 
 --version without the parameter t
-def ListRecTactic' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
-  (h : ∀ x, ∀ xs, Pre (x :: xs) → Pre xs)
-  (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
-  (step : Impl (.pair s (.pair .nat .list)) s (fun (res, (_, xs)) ↦ Post xs res) (fun (_, (x, xs)) out ↦ Post (x :: xs) out)) :
-    Impl .list s Pre Post :=
+def ListRecTactic' {s c e : Tpe} [ListTpe c e]
+  {Pre : c.denote → Prop} {Post : c.denote → s.denote → Prop}
+  (h : ∀ x, ∀ xs, Pre (ListLike.cons x xs) → Pre xs)
+  (base : Impl .unit s (fun _ => Pre ListLike.nil) (fun _ out ↦ Post ListLike.nil out))
+  (step : Impl (.pair s (.pair e c)) s (fun (res, (_, xs)) ↦ Post xs res) (fun (_, (x, xs)) out ↦ Post (ListLike.cons x xs) out)) :
+    Impl c s Pre Post :=
   {
     code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.var l)))) (.mkPair .unit (.var k))
     correct inp pre := by
-      induction inp with
-      | nil => exact base.correct _ (by trivial)
-      | cons x xs ih => exact step.correct ⟨_, ⟨x, xs⟩⟩ (ih <| h x xs pre)
+      induction inp using ListLike.ind with
+      | base => simpa [Trm.eval, Trm'.eval] using base.correct _ (by trivial)
+      | step x xs ih =>
+        simp only [Trm.eval, Trm'.eval, listFold_cons] at ih ⊢
+        exact step.correct ⟨_, ⟨x, xs⟩⟩ (ih (h x xs pre))
   }
 
 /- Version of ListRecTactic that also hands the step case the original precondition, rather than
 just the recursive result's postcondition. Needed whenever the step has to reason about the input
 it was called on -- InsertionSort's step, for instance, needs `Ordered` of the tail. -/
-def ListRecTacticPre {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.denote × List Nat → s.denote → Prop}
-  (h : ∀ p, ∀ x, ∀ xs, Pre (p, x :: xs) → Pre (p, xs))
-  (base : Impl t s (fun inp ↦ Pre (inp, [])) (fun p out ↦ Post (p, []) out))
-  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (x, xs))) ↦ Pre (p, x :: xs) ∧ Post (p, xs) res) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
-    Impl (.pair t .list) s Pre Post :=
+def ListRecTacticPre {s t c e : Tpe} [ListTpe c e]
+  {Pre : t.denote × c.denote → Prop} {Post : t.denote × c.denote → s.denote → Prop}
+  (h : ∀ p, ∀ x, ∀ xs, Pre (p, ListLike.cons x xs) → Pre (p, xs))
+  (base : Impl t s (fun inp ↦ Pre (inp, ListLike.nil)) (fun p out ↦ Post (p, ListLike.nil) out))
+  (step : Impl (.pair t (.pair s (.pair e c))) s (fun (p, (res, (x, xs))) ↦ Pre (p, ListLike.cons x xs) ∧ Post (p, xs) res) (fun (p, (_, (x, xs))) out ↦ Post (p, (ListLike.cons x xs)) out)) :
+    Impl (.pair t c) s Pre Post :=
   { code := .listRec base.code step.code
     correct inp pre := by
       obtain ⟨par, l⟩ := inp
-      induction l with
-      | nil => exact base.correct par pre
-      | cons x xs ih => exact step.correct ⟨par, ⟨_, ⟨x, xs⟩⟩⟩ ⟨pre, (ih (h _ _ _ pre))⟩
+      induction l using ListLike.ind with
+      | base => simpa [Trm.eval] using base.correct par pre
+      | step x xs ih =>
+        simp only [Trm.eval, Trm'.eval_listRec_cons]
+        exact step.correct ⟨par, ⟨_, ⟨x, xs⟩⟩⟩
+          ⟨pre, by simpa [Trm.eval] using ih (h _ _ _ pre)⟩
   }
 
 --version without actual recursion RENAME to ListCases
-def ListRecTactic'' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
-  (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
-  (step : Impl (.pair .nat .list) s (fun (x, xs) => Pre (x :: xs)) (fun (x, xs) out ↦ Post (x :: xs) out)) :
-    Impl .list s Pre Post :=
+def ListRecTactic'' {s c e : Tpe} [ListTpe c e]
+  {Pre : c.denote → Prop} {Post : c.denote → s.denote → Prop}
+  (base : Impl .unit s (fun _ => Pre ListLike.nil) (fun _ out ↦ Post ListLike.nil out))
+  (step : Impl (.pair e c) s (fun (x, xs) => Pre (ListLike.cons x xs)) (fun (x, xs) out ↦ Post (ListLike.cons x xs) out)) :
+    Impl c s Pre Post :=
   {
     code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.snd (.var l))))) (.mkPair .unit (.var k))
     correct inp pre := by
-      induction inp with
-      | nil => exact base.correct _ (by trivial)
-      | cons x xs _ => exact step.correct ⟨x, xs⟩ pre
+      induction inp using ListLike.ind with
+      | base => simpa [Trm.eval, Trm'.eval] using base.correct _ (by trivial)
+      | step x xs _ =>
+        simp only [Trm.eval, Trm'.eval, listFold_cons]
+        exact step.correct ⟨x, xs⟩ pre
   }
 
 /- Finally we need tactics for relaxing the Pre and Post Conditions-/

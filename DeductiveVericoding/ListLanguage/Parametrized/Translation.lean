@@ -58,7 +58,8 @@ theorem default_eval {t : Tpe} : (default : Trm' Tpe.denote t).eval = default :=
   | list => rfl
 
 
-theorem default_unit {t : Tpe} (h : t = Tpe.unit) : h ▸ (default : Tpe.unit.denote) = (default : t.denote) := by grind only
+theorem default_unit {t : Tpe} (h : t = Tpe.unit) : h ▸ (default : Tpe.unit.denote) = (default : t.denote) := by
+  cases h; rfl
 
 /-- The translation preserves the parameter-lookup value. -/
 theorem parTrans_eval : {Γ : Ctx} → (ρ : Env Tpe.denote Γ) → (i : Nat) → (t : Tpe) →
@@ -67,11 +68,10 @@ theorem parTrans_eval : {Γ : Ctx} → (ρ : Env Tpe.denote Γ) → (i : Nat) �
     simp [parTrans, Env.getT, default_eval, Env.get]
     intro h
     rw [← default_unit h.symm]
-    rfl
   | s :: _, (x, _), 0, t => by
     by_cases h : s = t
     · simp [parTrans, Env.getT, dif_pos h, Env.get]
-      have : h ▸ Trm'.var x = Trm'.var  (h ▸ x) := by grind only
+      have : h ▸ Trm'.var x = Trm'.var (h ▸ x) := by cases h; rfl
       rw [this, Trm'.eval]
     simp [Env.getT, h, parTrans, default_eval]
   | _ :: _, (_, ρ), i + 1, t => parTrans_eval ρ i t

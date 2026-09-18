@@ -63,7 +63,7 @@ def AppendConstantSolution : AppendConstantProblem := {
     induction inp with
     | nil => rfl
     | cons a l ih =>
-      simp [Trm.eval, Trm'.eval, Trm'.eval.go] at ⊢ ih
+      simp [Trm.eval, Trm'.eval] at ⊢ ih
       congr
 }
 
@@ -74,7 +74,7 @@ def AppendSolution : AppendProblem := {
     induction l with
     | nil => rfl
     | cons a l ih =>
-      simp [Trm.eval, Trm'.eval, Trm'.eval.go] at ⊢ ih
+      simp [Trm.eval, Trm'.eval] at ⊢ ih
       congr
 }
 
@@ -85,7 +85,7 @@ def AppendSolution : AppendProblem := {
 --     induction inp with
 --     | nil => rfl
 --     | cons a l ih =>
---       simp [Trm.eval, Trm'.eval, Trm'.eval.go] at ih ⊢
+--       simp [Trm.eval, Trm'.eval] at ih ⊢
 --       rw [ih]
 --       exact AppendSolution.correct (a, l.reverse) trivial
 -- }
@@ -97,14 +97,14 @@ def ConcatSolution : ConcatProblem := {
     induction l2 with
     | nil => rfl
     | cons a l ih =>
-      simp [Trm.eval, Trm'.eval, Trm'.eval.go] at ih ⊢
+      simp [Trm.eval, Trm'.eval] at ih ⊢
       rw [ih]
 }
 
 def IsEmptySolution : IsEmptyProblem := {
   code := .lam fun l => .app (.listRec (.lam fun k => .true) (.lam fun p => .false)) (.mkPair .unit (.var l))
   correct inp _ := by
-    obtain ⟨_, _⟩ := inp <;> simp [Trm'.eval, Trm.eval, Trm'.eval.go]
+    obtain ⟨_, _⟩ := inp <;> simp [Trm'.eval, Trm.eval]
 }
 
 /- # HARDER PROBLEMS-/
@@ -210,7 +210,7 @@ def AppendConstantSolution' : AppendConstantProblem := by
       simp
     · apply NilTactic
       simp
-  · simp
+  · simp [Tpe.denote]
     pushpre
     apply ConsTactic
     Vpair
@@ -234,7 +234,7 @@ def AppendSolution' : AppendProblem := by
       simp
     apply NilTactic
     simp
-  simp
+  simp [Tpe.denote]
   pushpre
   apply ConsTactic
   Vpair
@@ -255,7 +255,7 @@ def ConcatSolution' : ConcatProblem := by
   · simp
   · apply IdentityTactic
     simp
-  simp
+  simp [Tpe.denote]
   pushpre
   apply ConsTactic
   Vpair
@@ -275,7 +275,8 @@ def SplitSolution' : SplitProblem := by
   apply ListRecTactic''
   · apply ContradictionTactic
     simp
-  · Vpair
+  · simp [Tpe.denote]
+    Vpair
     · apply FstTactic
       apply IdentityTactic
       simp
@@ -288,7 +289,7 @@ def ReverseSolution' : ReverseProblem := by
   · simp
   · apply NilTactic
     simp
-  simp
+  simp [Tpe.denote]
   pushpre
   apply RelaxPreTactic (fun _ => True)
   · simp
@@ -303,7 +304,7 @@ def ReverseSolution' : ReverseProblem := by
       simp
     · apply NilTactic
       simp
-  · simp
+  · simp [Tpe.denote]
     pushpre
     apply ConsTactic
     Vpair
