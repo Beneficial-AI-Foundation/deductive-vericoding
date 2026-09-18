@@ -2,6 +2,11 @@ import DeductiveVericoding.ListLanguage.InsertionSort
 
 open ListLanguage
 
+/- TODO:
+  Recursor TypeClass
+  List -> List TypeClass
+  if time: Merge Sort -/
+
 /-!
 # Harder vericoding problems
 

@@ -77,6 +77,8 @@ def FstTactic {s t u : Tpe} {Pre : s.denote → Prop} {Post : s.denote → t.den
     Impl s t Pre Post :=
   { code := .lam fun k => .fst (.app impl.code (.var k)), correct := impl.correct }
 
+/- TODO: write Fst' and Snd' with stronger reduction-/
+
 def SndTactic {s t u : Tpe} {Pre : s.denote → Prop} {Post : s.denote → u.denote → Prop}
   (impl : Impl s (.pair t u) Pre (fun inp out => Post inp out.2)) :
     Impl s u Pre Post :=
@@ -134,7 +136,7 @@ def ListRecTacticPre {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t
       | cons x xs ih => exact step.correct ⟨par, ⟨_, ⟨x, xs⟩⟩⟩ ⟨pre, (ih (h _ _ _ pre))⟩
   }
 
---version without actual recursion
+--version without actual recursion RENAME to ListCases
 def ListRecTactic'' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
   (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
   (step : Impl (.pair .nat .list) s (fun (x, xs) => Pre (x :: xs)) (fun (x, xs) out ↦ Post (x :: xs) out)) :
