@@ -1,4 +1,5 @@
 import DeductiveVericoding.ListLanguage.Basic
+import DeductiveVericoding.ListLanguage.Typeclass
 import Lean
 
 /- # TACTICS : Here we have a collection of vericoding tactics-/
@@ -105,6 +106,31 @@ def ListRecTactic {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.de
       | nil => exact base.correct par (by trivial)
       | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ ⟨ih <| h par x xs pre, pre⟩
   }
+
+/-- What a recursion tactic recurses on, over the DSL collection type `L` (so far `.list`):
+a parameter type `t`, an output type `s`, and a specification of the program `t × L → s` to
+synthesize. -/
+structure RecMotive (L : Tpe) where
+  t : Tpe
+  s : Tpe
+  Pre : t.denote × L.denote → Prop
+  Post : t.denote × L.denote → s.denote → Prop
+
+/-- The DSL's list type is a `ListRep` whose recursor is `ListRecTactic`. The recursion is
+*uniform* rather than pointwise: the result is a single `Impl` for all lists, not a value per
+list. The step case carries `ListRecTactic`'s side condition `h`, that `Pre` survives taking the
+tail, alongside the step program. -/
+instance instListRepImpl : ListRep Tpe.list.denote Tpe.nat.denote where
+  Nil := []
+  Cons := List.cons
+  Motive := RecMotive .list
+  NilCase m := Impl m.t m.s (fun inp ↦ m.Pre ⟨inp, []⟩) (fun p out ↦ m.Post (p, []) out)
+  ConsCase m := PProd (∀ p, ∀ x, ∀ xs, m.Pre ⟨p, (x :: xs)⟩ → m.Pre ⟨p, xs⟩)
+    (Impl (.pair m.t (.pair m.s (.pair .nat .list))) m.s
+      (fun (p, (res, (x, xs))) ↦ m.Post (p, xs) res ∧ m.Pre (p, x :: xs))
+      (fun (p, (_, (x, xs))) out ↦ m.Post (p, (x :: xs)) out))
+  Result m := Impl (.pair m.t .list) m.s m.Pre m.Post
+  ListRec base step := ListRecTactic step.1 base step.2
 
 --version without the parameter t
 def ListRecTactic' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
