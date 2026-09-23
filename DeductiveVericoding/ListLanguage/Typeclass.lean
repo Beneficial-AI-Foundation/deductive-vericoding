@@ -1,11 +1,11 @@
 /-!
-# `ListLike`: an abstract interface for list-shaped types
+# `ListRep`: types that represent `List`
 
-`ListLike T` says that the type family `T` is usable as a list type: it supplies
+`ListRep T` says that the type family `T` is usable as a list type: it supplies
 the two constructors and the recursor. Every field has exactly the signature of
 its `List` counterpart, with `List A` replaced by `T A`:
 
-| `List`      | `ListLike`  |
+| `List`      | `ListRep`   |
 | ----------- | ----------- |
 | `List`      | `T`         |
 | `List.nil`  | `Nil`       |
@@ -30,7 +30,7 @@ universe u v
 
     The intended instance is `T := List`, for which the fields are literally
     `List.nil`, `List.cons` and `List.rec`. -/
-class ListLike (T : Type u → Type u) where
+class ListRep (T : Type u → Type u) where
   /-- The empty list, mirroring `List.nil : {A : Type u} → List A`. -/
   Nil : {A : Type u} → T A
   /-- Prepending, mirroring `List.cons : {A : Type u} → A → List A → List A`. -/
@@ -40,7 +40,7 @@ class ListLike (T : Type u → Type u) where
         ((head : A) → (tail : List A) → motive tail → motive (.cons head tail)) →
         (t : List A) → motive t`.
 
-      The minor premises are named so that `induction l using ListLike.ListRec`
+      The minor premises are named so that `induction l using ListRep.ListRec`
       yields the usual `with | nil => .. | cons head tail ih => ..` case names;
       anonymous binders would leave both goals called `a` and the step case
       un-introduced. -/
@@ -56,8 +56,8 @@ def listRec {A : Type u} {motive : List A → Sort v} (base : motive [])
   | [] => base
   | head :: tail => step head tail (listRec base step tail)
 
-/-- `List` is the prototypical `ListLike`. -/
-instance instListLikeList : ListLike List where
+/-- `List` is the prototypical `ListRep`. -/
+instance instListRepList : ListRep List where
   Nil := List.nil
   Cons := List.cons
   ListRec := listRec
@@ -76,7 +76,7 @@ cons rule already forces `[a, b] = [b, a]` (via `cons_swap`), and for
 
 /-- `Array` is `List` in a different representation: the same order, but `Cons`
     rebuilds rather than sharing, so it is `O(n)` instead of `O(1)`. -/
-instance instListLikeArray : ListLike Array where
+instance instListRepArray : ListRep Array where
   Nil := ⟨[]⟩
   Cons a s := ⟨a :: s.toList⟩
   ListRec {_A} {motive} base step s :=
@@ -84,7 +84,7 @@ instance instListLikeArray : ListLike Array where
 
 /-! ### Snoc-lists
 
-A list built from the other end. This is the instructive instance: `ListLike`
+A list built from the other end. This is the instructive instance: `ListRep`
 peels elements off the *far* end of a `SnocList`, so `ListRec` is emphatically
 **not** `SnocList.rec`. It is `listRec` transported across `SnocList A ≅ List A`,
 which is what `ofList_toList` is for. -/
@@ -128,9 +128,9 @@ theorem ofList_toList : ∀ s : SnocList A, ofList s.toList = s
 
 end SnocList
 
-/-- `SnocList` is `ListLike` against its *own* grain: the recursion runs from the
+/-- `SnocList` is `ListRep` against its *own* grain: the recursion runs from the
     tail end, transported along `SnocList.ofList_toList`. -/
-instance instListLikeSnocList : ListLike SnocList where
+instance instListRepSnocList : ListRep SnocList where
   Nil := .nil
   Cons := SnocList.cons
   ListRec {_A} {motive} base step s :=
