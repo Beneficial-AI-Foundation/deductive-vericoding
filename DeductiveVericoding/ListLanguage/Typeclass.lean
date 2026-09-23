@@ -38,9 +38,14 @@ class ListLike (T : Type u → Type u) where
   /-- The recursor, mirroring
       `List.rec : {A : Type u} → {motive : List A → Sort v} → motive .nil →
         ((head : A) → (tail : List A) → motive tail → motive (.cons head tail)) →
-        (t : List A) → motive t`. -/
-  ListRec : {A : Type u} → {motive : T A → Sort v} → motive Nil →
-    ((head : A) → (tail : T A) → motive tail → motive (Cons head tail)) →
+        (t : List A) → motive t`.
+
+      The minor premises are named so that `induction l using ListLike.ListRec`
+      yields the usual `with | nil => .. | cons head tail ih => ..` case names;
+      anonymous binders would leave both goals called `a` and the step case
+      un-introduced. -/
+  ListRec : {A : Type u} → {motive : T A → Sort v} → (nil : motive Nil) →
+    (cons : (head : A) → (tail : T A) → motive tail → motive (Cons head tail)) →
     (t : T A) → motive t
 
 /-- `List.rec` written as structural recursion, so that it is compiled by the
