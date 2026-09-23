@@ -14,6 +14,7 @@ instance instInhabitedTrm' {rep : Tpe → Type} : (t : Tpe) → Inhabited (Trm' 
   | .bool => ⟨.false⟩
   | .nat => ⟨.num 0⟩
   | .list => ⟨.nil⟩
+  | .array => ⟨.anil⟩
   | .pair t u => ⟨.mkPair (instInhabitedTrm' t).default (instInhabitedTrm' u).default⟩
   | .arrow _ u => ⟨.lam fun _ => (instInhabitedTrm' u).default⟩
 
@@ -56,6 +57,7 @@ theorem default_eval {t : Tpe} : (default : Trm' Tpe.denote t).eval = default :=
   | pair _ _ ih1 ih2 => simp [Trm'.eval, ih1, ih2]; rfl
   | arrow _ _ _ ih2 => simp [Trm'.eval, ih2]; rfl
   | list => rfl
+  | array => rfl
 
 
 theorem default_unit {t : Tpe} (h : t = Tpe.unit) : h ▸ (default : Tpe.unit.denote) = (default : t.denote) := by grind only

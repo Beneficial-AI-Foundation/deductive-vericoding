@@ -107,7 +107,7 @@ def ListRecTactic {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.de
       | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ ⟨ih <| h par x xs pre, pre⟩
   }
 
-/-- What a recursion tactic recurses on, over the DSL collection type `L` (so far `.list`):
+/-- What a recursion tactic recurses on, over the DSL collection type `L` (`.list` or `.array`):
 a parameter type `t`, an output type `s`, and a specification of the program `t × L → s` to
 synthesize. -/
 structure RecMotive (L : Tpe) where
@@ -131,6 +131,36 @@ instance instListRepImpl : ListRep Tpe.list.denote Tpe.nat.denote where
       (fun (p, (_, (x, xs))) out ↦ m.Post (p, (x :: xs)) out))
   Result m := Impl (.pair m.t .list) m.s m.Pre m.Post
   ListRec base step := ListRecTactic step.1 base step.2
+
+/-- `ListRecTactic` for arrays. As with `instListRepArray`, the recursion runs from the *front*:
+the step receives the first element `x` and the remaining array `xs`, and must produce the result
+for `⟨x :: xs.toList⟩`, the array `xs` with `x` prepended. -/
+def ArrayRecTactic {s t : Tpe} {Pre : t.denote × Array Nat → Prop} {Post : t.denote × Array Nat → s.denote → Prop}
+  (h : ∀ p, ∀ x, ∀ xs : Array Nat, Pre ⟨p, ⟨x :: xs.toList⟩⟩ → Pre ⟨p, xs⟩)
+  (base : Impl t s (fun inp ↦ Pre ⟨inp, #[]⟩) (fun p out ↦ Post (p, #[]) out))
+  (step : Impl (.pair t (.pair s (.pair .nat .array))) s (fun (p, (res, (x, xs))) ↦ Post (p, xs) res ∧ Pre (p, ⟨x :: xs.toList⟩)) (fun (p, (_, (x, xs))) out ↦ Post (p, ⟨x :: xs.toList⟩) out)) :
+    Impl (.pair t .array) s Pre Post :=
+  { code := .arrayRec base.code step.code
+    correct inp pre := by
+      obtain ⟨par, ⟨l⟩⟩ := inp
+      induction l with
+      | nil => exact base.correct par pre
+      | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, ⟨xs⟩⟩⟩⟩ ⟨ih <| h par x ⟨xs⟩ pre, pre⟩
+  }
+
+/-- The DSL's array type is a `ListRep` whose recursor is `ArrayRecTactic`; the array
+counterpart of `instListRepImpl`. `Nil` and `Cons` are those of `instListRepArray`. -/
+instance instListRepArrayImpl : ListRep Tpe.array.denote Tpe.nat.denote where
+  Nil := #[]
+  Cons x xs := ⟨x :: xs.toList⟩
+  Motive := RecMotive .array
+  NilCase m := Impl m.t m.s (fun inp ↦ m.Pre ⟨inp, #[]⟩) (fun p out ↦ m.Post (p, #[]) out)
+  ConsCase m := PProd (∀ p, ∀ x, ∀ xs : Array Nat, m.Pre ⟨p, ⟨x :: xs.toList⟩⟩ → m.Pre ⟨p, xs⟩)
+    (Impl (.pair m.t (.pair m.s (.pair .nat .array))) m.s
+      (fun (p, (res, (x, xs))) ↦ m.Post (p, xs) res ∧ m.Pre (p, ⟨x :: xs.toList⟩))
+      (fun (p, (_, (x, xs))) out ↦ m.Post (p, ⟨x :: xs.toList⟩) out))
+  Result m := Impl (.pair m.t .array) m.s m.Pre m.Post
+  ListRec base step := ArrayRecTactic step.1 base step.2
 
 --version without the parameter t
 def ListRecTactic' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}

@@ -6,7 +6,7 @@ list induction principle, following the Codable pattern.
 
 ## Structure
 
-1. **Type Universe**: `Tpe` - types in our DSL (unit, nat, list, pair, arrow)
+1. **Type Universe**: `Tpe` - types in our DSL (unit, nat, list, array, pair, arrow)
 2. **PHOAS Syntax**: `Trm' rep : Tpe → Type` - Parametric Higher-Order Abstract Syntax
 3. **Closed Terms**: `Trm t = {rep : Tpe → Type} → Trm' rep t`
 4. **Context-free Semantics**: `Trm'.eval` - no variable lookup needed
@@ -55,6 +55,7 @@ inductive Tpe where
   | bool : Tpe
   | nat : Tpe
   | list : Tpe
+  | array : Tpe
   | pair : Tpe → Tpe → Tpe
   | arrow : Tpe → Tpe → Tpe
   deriving Repr, BEq, DecidableEq
@@ -65,6 +66,7 @@ def Tpe.denote : Tpe → Type
   | .bool => Bool
   | .nat => Nat
   | .list => List Nat
+  | .array => Array Nat
   | .pair t u => t.denote × u.denote
   | .arrow t u => t.denote → u.denote
 
@@ -74,6 +76,7 @@ instance instInhabitedDenote : (t : Tpe) → Inhabited t.denote
   | .bool => inferInstanceAs (Inhabited Bool)
   | .nat => inferInstanceAs (Inhabited Nat)
   | .list => inferInstanceAs (Inhabited (List Nat))
+  | .array => inferInstanceAs (Inhabited (Array Nat))
   | .pair t u => ⟨(instInhabitedDenote t).default, (instInhabitedDenote u).default⟩
   | .arrow _t u => ⟨fun _ => (instInhabitedDenote u).default⟩
 
@@ -99,6 +102,13 @@ inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | listRec {s t : Tpe} : Trm' rep (.arrow t s) →
     Trm' rep (.arrow (.pair t (.pair s (.pair .nat .list))) s) →
     Trm' rep (.arrow (.pair t .list) s)
+  -- Array operations. Arrays are built and recursed on from the *front*, exactly like lists:
+  -- `acons` prepends, and `arrayRec` peels off the first element, handing the step the rest.
+  | anil : Trm' rep .array
+  | acons : Trm' rep .nat → Trm' rep .array → Trm' rep .array
+  | arrayRec {s t : Tpe} : Trm' rep (.arrow t s) →
+    Trm' rep (.arrow (.pair t (.pair s (.pair .nat .array))) s) →
+    Trm' rep (.arrow (.pair t .array) s)
   -- Boolean operations
   | true : Trm' rep .bool
   | false : Trm' rep .bool
@@ -114,6 +124,7 @@ instance instInhabitedTrm' {rep : Tpe → Type} : (t : Tpe) → Inhabited (Trm' 
   | .bool => ⟨.false⟩
   | .nat => ⟨.num 0⟩
   | .list => ⟨.nil⟩
+  | .array => ⟨.anil⟩
   | .pair t u => ⟨.mkPair (instInhabitedTrm' t).default (instInhabitedTrm' u).default⟩
   | .arrow _ u => ⟨.lam fun _ => (instInhabitedTrm' u).default⟩
 
@@ -126,6 +137,7 @@ def Tpe.pretty : Tpe → String
   | .bool => "Bool"
   | .nat => "Nat"
   | .list => "List"
+  | .array => "Array"
   | .pair t u => s!"({t.pretty} × {u.pretty})"
   | .arrow t u => s!"({t.pretty} → {u.pretty})"
 
@@ -162,6 +174,15 @@ def Trm'.prettyAux : {t : Tpe} → Trm' (fun _ => String) t → Nat → String �
       let (bs, n1) := base.prettyAux n
       let (ss, n2) := step.prettyAux n1
       (s!"listRec({bs}, {ss})", n2)
+  | _, .anil, n => ("#[]", n)
+  | _, .acons hd tl, n =>
+      let (hds, n1) := hd.prettyAux n
+      let (tls, n2) := tl.prettyAux n1
+      (s!"acons({hds}, {tls})", n2)
+  | _, .arrayRec base step, n =>
+      let (bs, n1) := base.prettyAux n
+      let (ss, n2) := step.prettyAux n1
+      (s!"arrayRec({bs}, {ss})", n2)
   | _, .true, n => ("true", n)
   | _, .false, n => ("false", n)
   | _, .le e1 e2, n =>
@@ -193,7 +214,8 @@ instance {t : Tpe} : ToString (Trm t) := ⟨Trm.pretty⟩
     This is the key PHOAS insight: Lean handles substitution automatically.
 
     Termination: structural recursion on terms, with a nested recursion on
-    the input list for `listRec` (using precomputed base/step values). -/
+    the input list for `listRec` (using precomputed base/step values), and on
+    the input array's underlying list for `arrayRec`. -/
 def Trm'.eval : {t : Tpe} → Trm' Tpe.denote t → t.denote
   | _, .unit => ()
   | _, .nil => []
@@ -214,6 +236,17 @@ def Trm'.eval : {t : Tpe} → Trm' Tpe.denote t → t.denote
         | [] => baseVal
         | a :: tl => stepVal (par, (go tl, (a, tl)))
       exact go l
+  | _, .anil => #[]
+  | _, .acons hd tl => ⟨hd.eval :: tl.eval.toList⟩
+  | _, .arrayRec base step => by
+      intro p
+      obtain ⟨par, a⟩ := p
+      let baseVal := base.eval par
+      let stepVal := step.eval
+      let rec goArray : List Nat → _
+        | [] => baseVal
+        | x :: tl => stepVal (par, (goArray tl, (x, ⟨tl⟩)))
+      exact goArray a.toList
   | _, .true => Bool.true
   | _, .false => Bool.false
   | _, .le e1 e2 => Nat.ble e1.eval e2.eval
