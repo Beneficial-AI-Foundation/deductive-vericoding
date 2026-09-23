@@ -404,3 +404,96 @@ elab "Vpair" : tactic => do
     catch _ =>
       st.restore
       throw e
+
+/-- Reduce every projection out of an explicit value `S.mk a₁ … aₙ` of the structure `S`, in
+    both the projection-function and the raw `Expr.proj` spelling. Only `S` is touched, so the
+    rest of the goal (e.g. `(inp, []).2` in a user's precondition) is left as written. -/
+def reduceStructProjs (S : Name) (e : Expr) : MetaM Expr := do
+  unless isStructure (← getEnv) S do return e
+  let ci := getStructureCtor (← getEnv) S
+  Meta.transform e (post := fun e => do
+    match e with
+    | .proj s i x =>
+      if s == S && x.isAppOfArity ci.name (ci.numParams + ci.numFields) then
+        return .visit x.getAppArgs[ci.numParams + i]!
+      return .done e
+    | _ =>
+      let .const f _ := e.getAppFn | return .done e
+      let some info := (← getEnv).getProjectionFnInfo? f | return .done e
+      unless info.ctorName == ci.name do return .done e
+      let args := e.getAppArgs
+      let some x := args[info.numParams]? | return .done e
+      unless x.isAppOfArity ci.name (ci.numParams + ci.numFields) do return .done e
+      let field := x.getAppArgs[ci.numParams + info.i]!
+      return .visit (mkAppN field args[info.numParams + 1:]).headBeta)
+
+/-- Unfold the `ListRep` judgment `ty` (e.g. `ListRep.NilCase m`) through its instance, and
+    reduce the projections out of the motive `S.mk …`, so the goal reads as it would after
+    applying the underlying tactic (e.g. `ListRecTactic`) directly. -/
+def cleanListRepGoal (S : Name) (g : MVarId) : MetaM MVarId := do
+  let ty ← withTransparency .instances <| whnf (← instantiateMVars (← g.getType))
+  g.replaceTargetDefEq (← reduceStructProjs S (← instantiateMVars ty))
+
+/-- `ListRepTactic` recurses on the collection in an `Impl (.pair t L) s Pre Post` goal by
+    finding the `ListRep L.denote _` instance and applying its `ListRep.ListRec`: for
+    `L := .list` that is `ListRecTactic`, for `L := .array` it is `ArrayRecTactic`.
+
+    The motive is taken to be a structure (`RecMotive L` for the `Impl` instances) and is
+    filled in with fresh fields, which unifying the instance's `Result` with the goal then
+    determines. A step case that is a `PProd` (a side condition paired with the step program)
+    is split, so the new goals come in `ListRecTactic`'s order and under its argument names:
+    `h` (the side condition), `base`, `step`. -/
+elab "ListRepTactic" : tactic => do
+  let g ← getMainGoal
+  g.withContext do
+    let tgt ← whnfR (← instantiateMVars (← g.getType))
+    unless tgt.isAppOfArity ``Impl 4 do
+      throwError "ListRepTactic: goal is not an `Impl` problem:{indentExpr tgt}"
+    let I ← whnfR tgt.getAppArgs[0]!
+    unless I.isAppOfArity ``Tpe.pair 2 do
+      throwError "ListRepTactic: input type is not a pair `.pair t L`:{indentExpr I}"
+    let carrier := denoteExpr I.appArg!
+    -- `ListRep carrier ?A`, with the universes and the element type left to the instance
+    let listRep ← mkConstWithFreshMVarLevels ``ListRep
+    let (args, _, _) ← forallMetaTelescopeReducing (← inferType listRep)
+    unless ← isDefEq args[0]! carrier do
+      throwError "ListRepTactic: {carrier} is not a type"
+    let inst ← try synthInstance (mkAppN listRep args) catch _ =>
+      throwError "ListRepTactic: no `ListRep` instance for{indentExpr carrier}"
+    let instTy ← instantiateMVars (← inferType inst)
+    let recFn := mkAppN (mkConst ``ListRep.ListRec instTy.getAppFn.constLevels!) instTy.getAppArgs
+      |>.app inst
+    -- the motive: its structure's constructor applied to fresh fields
+    let .forallE _ motiveTy _ _ ← whnf (← inferType recFn) |
+      throwError "ListRepTactic: unexpected type of `ListRep.ListRec`"
+    let motiveTy ← whnf motiveTy
+    let .const S us := motiveTy.getAppFn |
+      throwError "ListRepTactic: the motive type is not a structure:{indentExpr motiveTy}"
+    unless isStructure (← getEnv) S do
+      throwError "ListRepTactic: the motive type is not a structure:{indentExpr motiveTy}"
+    let ctor := getStructureCtor (← getEnv) S
+    let mk := mkAppN (mkConst ctor.name us) motiveTy.getAppArgs
+    let (fields, _, _) ← forallMetaTelescope (← inferType mk)
+    let motive := mkAppN mk fields
+    -- Match the goal against `Result motive` reduced to `Impl (.pair ?t L) ?s ?Pre ?Post`, so
+    -- the fields are assigned the goal's own `Pre`/`Post` rather than unfolded versions of them.
+    let result := mkAppN (mkConst ``ListRep.Result instTy.getAppFn.constLevels!)
+      (instTy.getAppArgs ++ #[inst, motive])
+    let result ← reduceStructProjs S (← withTransparency .instances <| whnf result)
+    unless ← isDefEq result (← g.getType) do
+      throwError "ListRepTactic: the goal is not of the form{indentExpr result}"
+    let goals ← g.apply (mkApp recFn motive)
+    let [nilG, consG] := goals |
+      throwError "ListRepTactic: could not unify the recursor's result with the goal"
+    let nilG ← cleanListRepGoal S nilG
+    let consG ← cleanListRepGoal S consG
+    let consTy ← whnfR (← consG.getType)
+    if consTy.isAppOfArity ``PProd 2 then
+      let side ← mkFreshExprSyntheticOpaqueMVar consTy.appFn!.appArg!
+      let step ← mkFreshExprSyntheticOpaqueMVar consTy.appArg!
+      consG.assign (← mkAppM ``PProd.mk #[side, step])
+      -- named as the arguments of `ListRecTactic`
+      side.mvarId!.setTag `h; nilG.setTag `base; step.mvarId!.setTag `step
+      replaceMainGoal [side.mvarId!, nilG, step.mvarId!]
+    else
+      replaceMainGoal [nilG, consG]

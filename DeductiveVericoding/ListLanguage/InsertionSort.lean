@@ -86,7 +86,7 @@ abbrev InsertionSortProblem := Impl .list .list (fun _ => True) (fun inp out => 
 abbrev InsertProblem := Impl (.pair .nat .list) .list (fun inp => Ordered inp.2) (fun ⟨a, l⟩ out => Sorted (a :: l) out)
 
 def InsertionSolution : InsertProblem := by
-  apply ListRecTactic
+  ListRepTactic
   · intro _ _ l
     induction l with -- use grind here
     | nil => simp [Ordered]

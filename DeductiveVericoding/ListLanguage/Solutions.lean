@@ -225,7 +225,7 @@ def AppendConstantSolution' : AppendConstantProblem := by
 #eval ListLanguage.Trm.pretty AppendConstantSolution'.code
 
 def AppendSolution' : AppendProblem := by
-  apply ListRecTactic
+  ListRepTactic
   · simp
   · apply ConsTactic
     simp
@@ -251,7 +251,7 @@ def AppendSolution' : AppendProblem := by
 #eval ListLanguage.Trm.pretty AppendSolution'.code
 
 def ConcatSolution' : ConcatProblem := by
-  apply ListRecTactic
+  ListRepTactic
   · simp
   · apply IdentityTactic
     simp
@@ -293,7 +293,7 @@ def ReverseSolution' : ReverseProblem := by
   apply RelaxPreTactic (fun _ => True)
   · simp
   apply SwapTactic
-  apply ListRecTactic
+  ListRepTactic
   · simp
   · apply ConsTactic
     simp
