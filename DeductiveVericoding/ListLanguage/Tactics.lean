@@ -1,4 +1,5 @@
 import DeductiveVericoding.ListLanguage.Basic
+import DeductiveVericoding.ListLanguage.Typeclass
 import Lean
 
 /- # TACTICS : Here we have a collection of vericoding tactics-/
@@ -105,6 +106,61 @@ def ListRecTactic {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.de
       | nil => exact base.correct par (by trivial)
       | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ ⟨ih <| h par x xs pre, pre⟩
   }
+
+/-- What a recursion tactic recurses on, over the DSL collection type `L` (`.list` or `.array`):
+a parameter type `t`, an output type `s`, and a specification of the program `t × L → s` to
+synthesize. -/
+structure RecMotive (L : Tpe) where
+  t : Tpe
+  s : Tpe
+  Pre : t.denote × L.denote → Prop
+  Post : t.denote × L.denote → s.denote → Prop
+
+/-- The DSL's list type is a `ListRep` whose recursor is `ListRecTactic`. The recursion is
+*uniform* rather than pointwise: the result is a single `Impl` for all lists, not a value per
+list. The step case carries `ListRecTactic`'s side condition `h`, that `Pre` survives taking the
+tail, alongside the step program. -/
+instance instListRepImpl : ListRep Tpe.list.denote Tpe.nat.denote where
+  Nil := []
+  Cons := List.cons
+  Motive := RecMotive .list
+  NilCase m := Impl m.t m.s (fun inp ↦ m.Pre ⟨inp, []⟩) (fun p out ↦ m.Post (p, []) out)
+  ConsCase m := PProd (∀ p, ∀ x, ∀ xs, m.Pre ⟨p, (x :: xs)⟩ → m.Pre ⟨p, xs⟩)
+    (Impl (.pair m.t (.pair m.s (.pair .nat .list))) m.s
+      (fun (p, (res, (x, xs))) ↦ m.Post (p, xs) res ∧ m.Pre (p, x :: xs))
+      (fun (p, (_, (x, xs))) out ↦ m.Post (p, (x :: xs)) out))
+  Result m := Impl (.pair m.t .list) m.s m.Pre m.Post
+  ListRec base step := ListRecTactic step.1 base step.2
+
+/-- `ListRecTactic` for arrays. As with `instListRepArray`, the recursion runs from the *front*:
+the step receives the first element `x` and the remaining array `xs`, and must produce the result
+for `⟨x :: xs.toList⟩`, the array `xs` with `x` prepended. -/
+def ArrayRecTactic {s t : Tpe} {Pre : t.denote × Array Nat → Prop} {Post : t.denote × Array Nat → s.denote → Prop}
+  (h : ∀ p, ∀ x, ∀ xs : Array Nat, Pre ⟨p, ⟨x :: xs.toList⟩⟩ → Pre ⟨p, xs⟩)
+  (base : Impl t s (fun inp ↦ Pre ⟨inp, #[]⟩) (fun p out ↦ Post (p, #[]) out))
+  (step : Impl (.pair t (.pair s (.pair .nat .array))) s (fun (p, (res, (x, xs))) ↦ Post (p, xs) res ∧ Pre (p, ⟨x :: xs.toList⟩)) (fun (p, (_, (x, xs))) out ↦ Post (p, ⟨x :: xs.toList⟩) out)) :
+    Impl (.pair t .array) s Pre Post :=
+  { code := .arrayRec base.code step.code
+    correct inp pre := by
+      obtain ⟨par, ⟨l⟩⟩ := inp
+      induction l with
+      | nil => exact base.correct par pre
+      | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, ⟨xs⟩⟩⟩⟩ ⟨ih <| h par x ⟨xs⟩ pre, pre⟩
+  }
+
+/-- The DSL's array type is a `ListRep` whose recursor is `ArrayRecTactic`; the array
+counterpart of `instListRepImpl`. `Nil` and `Cons` are those of `instListRepArray`. -/
+instance instListRepArrayImpl : ListRep Tpe.array.denote Tpe.nat.denote where
+  Nil := #[]
+  Cons x xs := ⟨x :: xs.toList⟩
+  Motive := RecMotive .array
+  NilCase m := Impl m.t m.s (fun inp ↦ m.Pre ⟨inp, #[]⟩) (fun p out ↦ m.Post (p, #[]) out)
+  ConsCase m := PProd (∀ p, ∀ x, ∀ xs : Array Nat, m.Pre ⟨p, ⟨x :: xs.toList⟩⟩ → m.Pre ⟨p, xs⟩)
+    (Impl (.pair m.t (.pair m.s (.pair .nat .array))) m.s
+      (fun (p, (res, (x, xs))) ↦ m.Post (p, xs) res ∧ m.Pre (p, ⟨x :: xs.toList⟩))
+      (fun (p, (_, (x, xs))) out ↦ m.Post (p, ⟨x :: xs.toList⟩) out))
+  Result m := Impl (.pair m.t .array) m.s m.Pre m.Post
+  ListRec base step := ArrayRecTactic step.1 base step.2
 
 --version without the parameter t
 def ListRecTactic' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
@@ -348,3 +404,96 @@ elab "Vpair" : tactic => do
     catch _ =>
       st.restore
       throw e
+
+/-- Reduce every projection out of an explicit value `S.mk a₁ … aₙ` of the structure `S`, in
+    both the projection-function and the raw `Expr.proj` spelling. Only `S` is touched, so the
+    rest of the goal (e.g. `(inp, []).2` in a user's precondition) is left as written. -/
+def reduceStructProjs (S : Name) (e : Expr) : MetaM Expr := do
+  unless isStructure (← getEnv) S do return e
+  let ci := getStructureCtor (← getEnv) S
+  Meta.transform e (post := fun e => do
+    match e with
+    | .proj s i x =>
+      if s == S && x.isAppOfArity ci.name (ci.numParams + ci.numFields) then
+        return .visit x.getAppArgs[ci.numParams + i]!
+      return .done e
+    | _ =>
+      let .const f _ := e.getAppFn | return .done e
+      let some info := (← getEnv).getProjectionFnInfo? f | return .done e
+      unless info.ctorName == ci.name do return .done e
+      let args := e.getAppArgs
+      let some x := args[info.numParams]? | return .done e
+      unless x.isAppOfArity ci.name (ci.numParams + ci.numFields) do return .done e
+      let field := x.getAppArgs[ci.numParams + info.i]!
+      return .visit (mkAppN field args[info.numParams + 1:]).headBeta)
+
+/-- Unfold the `ListRep` judgment `ty` (e.g. `ListRep.NilCase m`) through its instance, and
+    reduce the projections out of the motive `S.mk …`, so the goal reads as it would after
+    applying the underlying tactic (e.g. `ListRecTactic`) directly. -/
+def cleanListRepGoal (S : Name) (g : MVarId) : MetaM MVarId := do
+  let ty ← withTransparency .instances <| whnf (← instantiateMVars (← g.getType))
+  g.replaceTargetDefEq (← reduceStructProjs S (← instantiateMVars ty))
+
+/-- `ListRepTactic` recurses on the collection in an `Impl (.pair t L) s Pre Post` goal by
+    finding the `ListRep L.denote _` instance and applying its `ListRep.ListRec`: for
+    `L := .list` that is `ListRecTactic`, for `L := .array` it is `ArrayRecTactic`.
+
+    The motive is taken to be a structure (`RecMotive L` for the `Impl` instances) and is
+    filled in with fresh fields, which unifying the instance's `Result` with the goal then
+    determines. A step case that is a `PProd` (a side condition paired with the step program)
+    is split, so the new goals come in `ListRecTactic`'s order and under its argument names:
+    `h` (the side condition), `base`, `step`. -/
+elab "ListRepTactic" : tactic => do
+  let g ← getMainGoal
+  g.withContext do
+    let tgt ← whnfR (← instantiateMVars (← g.getType))
+    unless tgt.isAppOfArity ``Impl 4 do
+      throwError "ListRepTactic: goal is not an `Impl` problem:{indentExpr tgt}"
+    let I ← whnfR tgt.getAppArgs[0]!
+    unless I.isAppOfArity ``Tpe.pair 2 do
+      throwError "ListRepTactic: input type is not a pair `.pair t L`:{indentExpr I}"
+    let carrier := denoteExpr I.appArg!
+    -- `ListRep carrier ?A`, with the universes and the element type left to the instance
+    let listRep ← mkConstWithFreshMVarLevels ``ListRep
+    let (args, _, _) ← forallMetaTelescopeReducing (← inferType listRep)
+    unless ← isDefEq args[0]! carrier do
+      throwError "ListRepTactic: {carrier} is not a type"
+    let inst ← try synthInstance (mkAppN listRep args) catch _ =>
+      throwError "ListRepTactic: no `ListRep` instance for{indentExpr carrier}"
+    let instTy ← instantiateMVars (← inferType inst)
+    let recFn := mkAppN (mkConst ``ListRep.ListRec instTy.getAppFn.constLevels!) instTy.getAppArgs
+      |>.app inst
+    -- the motive: its structure's constructor applied to fresh fields
+    let .forallE _ motiveTy _ _ ← whnf (← inferType recFn) |
+      throwError "ListRepTactic: unexpected type of `ListRep.ListRec`"
+    let motiveTy ← whnf motiveTy
+    let .const S us := motiveTy.getAppFn |
+      throwError "ListRepTactic: the motive type is not a structure:{indentExpr motiveTy}"
+    unless isStructure (← getEnv) S do
+      throwError "ListRepTactic: the motive type is not a structure:{indentExpr motiveTy}"
+    let ctor := getStructureCtor (← getEnv) S
+    let mk := mkAppN (mkConst ctor.name us) motiveTy.getAppArgs
+    let (fields, _, _) ← forallMetaTelescope (← inferType mk)
+    let motive := mkAppN mk fields
+    -- Match the goal against `Result motive` reduced to `Impl (.pair ?t L) ?s ?Pre ?Post`, so
+    -- the fields are assigned the goal's own `Pre`/`Post` rather than unfolded versions of them.
+    let result := mkAppN (mkConst ``ListRep.Result instTy.getAppFn.constLevels!)
+      (instTy.getAppArgs ++ #[inst, motive])
+    let result ← reduceStructProjs S (← withTransparency .instances <| whnf result)
+    unless ← isDefEq result (← g.getType) do
+      throwError "ListRepTactic: the goal is not of the form{indentExpr result}"
+    let goals ← g.apply (mkApp recFn motive)
+    let [nilG, consG] := goals |
+      throwError "ListRepTactic: could not unify the recursor's result with the goal"
+    let nilG ← cleanListRepGoal S nilG
+    let consG ← cleanListRepGoal S consG
+    let consTy ← whnfR (← consG.getType)
+    if consTy.isAppOfArity ``PProd 2 then
+      let side ← mkFreshExprSyntheticOpaqueMVar consTy.appFn!.appArg!
+      let step ← mkFreshExprSyntheticOpaqueMVar consTy.appArg!
+      consG.assign (← mkAppM ``PProd.mk #[side, step])
+      -- named as the arguments of `ListRecTactic`
+      side.mvarId!.setTag `h; nilG.setTag `base; step.mvarId!.setTag `step
+      replaceMainGoal [side.mvarId!, nilG, step.mvarId!]
+    else
+      replaceMainGoal [nilG, consG]
