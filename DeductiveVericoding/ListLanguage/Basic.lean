@@ -60,7 +60,7 @@ inductive Tpe where
   deriving Repr, BEq, DecidableEq
 
 /-- Denotation of types to Lean types -/
-def Tpe.denote : Tpe → Type
+abbrev Tpe.denote : Tpe → Type
   | .unit => Unit
   | .bool => Bool
   | .nat => Nat
@@ -77,6 +77,9 @@ instance instInhabitedDenote : (t : Tpe) → Inhabited t.denote
   | .pair t u => ⟨(instInhabitedDenote t).default, (instInhabitedDenote u).default⟩
   | .arrow _t u => ⟨fun _ => (instInhabitedDenote u).default⟩
 
+notation s "→L" t => Tpe.arrow s t
+notation s "×L" t => Tpe.pair s t
+
 /-! ## Typed Trms (PHOAS-style) -/
 
 /-- Typed terms using Parametric Higher-Order Abstract Syntax (PHOAS).
@@ -85,6 +88,72 @@ instance instInhabitedDenote : (t : Tpe) → Inhabited t.denote
     - Evaluation: instantiate `rep = Tpe.denote` so variables hold values directly
     - Pretty printing: instantiate `rep = fun _ => String` for variable names
     - No context lookup needed - Lean handles substitution automatically -/
+
+/- A tuple consisting of `n` copies of the same type `t` -/
+abbrev dup (t : Tpe) : Nat → Tpe
+  | 0 => .unit
+  | 1 => t
+  | n + 2 => .pair t (dup t (n+1))
+
+abbrev dup.toList {t : Tpe} : {d : Nat} → (dup t d).denote → List t.denote
+  | 0, _ => []
+  | 1, x => [x]
+  | _ + 2, ⟨x, xs⟩ => x :: dup.toList xs
+
+abbrev dup.map {s t : Tpe} (f : s.denote → t.denote) : {d : Nat} → (dup s d).denote → (dup t d).denote
+  | 0, _ => ()
+  | 1, x => f x
+  | _ + 2, ⟨x, xs⟩ => (f x, dup.map f xs)
+
+@[simp]
+theorem dup.map_map {s t u: Tpe} {d : Nat} (f : s.denote → t.denote) (g : t.denote → u.denote) (x : (dup s d).denote) :
+    dup.map g (dup.map f x) = dup.map (g ∘ f) x := by
+  induction d; rfl
+  expose_names
+  induction n; rfl
+  grind only [cases eager Prod]
+
+@[simp]
+theorem dup.map_id {s: Tpe} {d : Nat} (x : (dup s d).denote) :
+    dup.map id x = x := by
+  induction d; rfl
+  expose_names
+  induction n; rfl
+  grind only [= id.eq_1, cases eager Prod]
+
+@[simp]
+theorem dup.map_toList {s t : Tpe} {d : Nat} (f : s.denote → t.denote) (x : (dup s d).denote) :
+    (dup.toList x).map f = dup.toList (dup.map f x) := by
+  induction d; rfl
+  expose_names
+  induction n; rfl
+  simp only [toList, List.map_cons, List.cons.injEq, true_and]
+  exact h x.2
+
+@[simp]
+theorem dup.toList_length {s : Tpe} {d : Nat} (x : (dup s d).denote) :
+    (dup.toList x).length = d := by
+  induction d; rfl
+  expose_names
+  induction n; rfl
+  simpa [toList] using h x.2
+
+/- A Recursor used for list recursion. Provides oracle access to a splitting function and provides a proof of finite descent. -/
+structure Recursor (s u : Tpe) (d : Nat) where
+  split : s.denote → u.denote × (dup s d).denote
+  unsplit : u.denote × (dup s d).denote → s.denote
+  depth : s.denote → Nat
+  unsplit_split : ∀ x, depth x > 0 → unsplit (split x) = x
+  -- descending : ∀ x, depth x > 0 → dup.foldl (t := .nat) max (dup.map depth (split x).snd) < depth x
+  descending : ∀ x, depth x > 0 → ((dup.toList (split x).snd).map depth).foldl max 0 < depth x
+
+/- The list recursion function associated with a Recursor `R`. -/
+def Recursor.fold {s t u : Tpe} {d : Nat} (R : Recursor s u d) (base : s.denote → t.denote)
+  (step : u.denote × ((dup s d).denote × (dup t d).denote) → t.denote) (x : s.denote) : t.denote := if R.depth x = 0 then base x else step ⟨(R.split x).1, (R.split x).2 ,dup.map (R.fold base step) (R.split x).2⟩
+  termination_by (R.depth x)
+  decreasing_by
+  sorry
+
 inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | unit : Trm' rep .unit
   | nil : Trm' rep .list
@@ -96,9 +165,8 @@ inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | snd : {t u : Tpe} → Trm' rep (.pair t u) → Trm' rep u
   | lam : {t u : Tpe} → (rep t → Trm' rep u) → Trm' rep (.arrow t u)
   | app : {t u : Tpe} → Trm' rep (.arrow t u) → Trm' rep t → Trm' rep u
-  | listRec {s t : Tpe} : Trm' rep (.arrow t s) →
-    Trm' rep (.arrow (.pair t (.pair s (.pair .nat .list))) s) →
-    Trm' rep (.arrow (.pair t .list) s)
+  | listRec {s u t : Tpe} {d : Nat} (rec : Recursor s u d) : Trm' rep (s →L t) →
+    Trm' rep ((u ×L ((dup s d) ×L (dup t d))) →L t) → Trm' rep (s →L t)
   -- Boolean operations
   | true : Trm' rep .bool
   | false : Trm' rep .bool
@@ -158,7 +226,7 @@ def Trm'.prettyAux : {t : Tpe} → Trm' (fun _ => String) t → Nat → String �
       let (fs, n1) := f.prettyAux n
       let (args, n2) := arg.prettyAux n1
       (s!"{fs}({args})", n2)
-  | _, .listRec base step, n =>
+  | _, .listRec _ base step, n =>
       let (bs, n1) := base.prettyAux n
       let (ss, n2) := step.prettyAux n1
       (s!"listRec({bs}, {ss})", n2)
@@ -205,15 +273,7 @@ def Trm'.eval : {t : Tpe} → Trm' Tpe.denote t → t.denote
   | _, .snd e => e.eval.2
   | _, .lam f => fun v => (f v).eval  -- Lean handles binding
   | _, .app f arg => f.eval arg.eval
-  | _, .listRec base step => by
-      intro p
-      obtain ⟨par, l⟩ := p
-      let baseVal := base.eval par
-      let stepVal := step.eval
-      let rec go : List Nat → _
-        | [] => baseVal
-        | a :: tl => stepVal (par, (go tl, (a, tl)))
-      exact go l
+  | _, .listRec R base step => R.fold base.eval step.eval
   | _, .true => Bool.true
   | _, .false => Bool.false
   | _, .le e1 e2 => Nat.ble e1.eval e2.eval
