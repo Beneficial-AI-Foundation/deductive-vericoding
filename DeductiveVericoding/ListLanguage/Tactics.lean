@@ -1,5 +1,6 @@
 import DeductiveVericoding.ListLanguage.Basic
 import Lean
+import Mathlib.Tactic
 
 /- # TACTICS : Here we have a collection of vericoding tactics-/
 
@@ -93,60 +94,27 @@ def SwapTactic {s t u : Tpe} {Pre : s.denote × t.denote → Prop} {Post : s.den
 
 /-Recursion Tactics-/
 
-def ListRecTactic {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.denote × List Nat → s.denote → Prop}
-  (h : ∀ p, ∀ x, ∀ xs, Pre ⟨p, (x :: xs)⟩ → Pre ⟨p, xs⟩)
-  (base : Impl t s (fun inp ↦ Pre ⟨inp, []⟩) (fun p out ↦ Post (p, []) out))
-  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (x, xs))) ↦ Post (p, xs) res ∧ Pre (p, x :: xs)) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
-    Impl (.pair t .list) s Pre Post :=
-  { code := .listRec base.code step.code
+def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d) {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
+  (h : ∀ x, Pre x → ((dup.toList (R.split x).2).map Pre).foldl And true)
+  (base : Impl s t (fun inp ↦ R.depth inp = 0) Post)
+  (step : Impl (u ×L dup s d ×L dup t d) t
+   (fun (p, (inp, res)) ↦ (((dup.toList inp).zip (dup.toList res)).map (fun x ↦ Post x.1 x.2)).foldl And true ∧ ((dup.toList inp).map Pre).foldl And true)
+   (fun (p, inp, _) out ↦ Post (R.unsplit (p, inp)) out)) :
+    Impl s t Pre Post :=
+  { code := .listRec R base.code step.code
     correct inp pre := by
-      obtain ⟨par, l⟩ := inp
-      induction l with
-      | nil => exact base.correct par (by trivial)
-      | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ ⟨ih <| h par x xs pre, pre⟩
-  }
-
---version without the parameter t
-def ListRecTactic' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
-  (h : ∀ x, ∀ xs, Pre (x :: xs) → Pre xs)
-  (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
-  (step : Impl (.pair s (.pair .nat .list)) s (fun (res, (_, xs)) ↦ Post xs res) (fun (_, (x, xs)) out ↦ Post (x :: xs) out)) :
-    Impl .list s Pre Post :=
-  {
-    code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.var l)))) (.mkPair .unit (.var k))
-    correct inp pre := by
-      induction inp with
-      | nil => exact base.correct _ (by trivial)
-      | cons x xs ih => exact step.correct ⟨_, ⟨x, xs⟩⟩ (ih <| h x xs pre)
-  }
-
-/- Version of ListRecTactic that also hands the step case the original precondition, rather than
-just the recursive result's postcondition. Needed whenever the step has to reason about the input
-it was called on -- InsertionSort's step, for instance, needs `Ordered` of the tail. -/
-def ListRecTacticPre {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.denote × List Nat → s.denote → Prop}
-  (h : ∀ p, ∀ x, ∀ xs, Pre (p, x :: xs) → Pre (p, xs))
-  (base : Impl t s (fun inp ↦ Pre (inp, [])) (fun p out ↦ Post (p, []) out))
-  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (x, xs))) ↦ Pre (p, x :: xs) ∧ Post (p, xs) res) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
-    Impl (.pair t .list) s Pre Post :=
-  { code := .listRec base.code step.code
-    correct inp pre := by
-      obtain ⟨par, l⟩ := inp
-      induction l with
-      | nil => exact base.correct par pre
-      | cons x xs ih => exact step.correct ⟨par, ⟨_, ⟨x, xs⟩⟩⟩ ⟨pre, (ih (h _ _ _ pre))⟩
-  }
-
---version without actual recursion RENAME to ListCases
-def ListRecTactic'' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
-  (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
-  (step : Impl (.pair .nat .list) s (fun (x, xs) => Pre (x :: xs)) (fun (x, xs) out ↦ Post (x :: xs) out)) :
-    Impl .list s Pre Post :=
-  {
-    code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.snd (.var l))))) (.mkPair .unit (.var k))
-    correct inp pre := by
-      induction inp with
-      | nil => exact base.correct _ (by trivial)
-      | cons x xs _ => exact step.correct ⟨x, xs⟩ pre
+      induction hn : R.depth inp using Nat.strongRecOn' generalizing inp
+      expose_names
+      by_cases hn' : R.depth inp = 0
+      · simp [Trm.eval, Trm'.eval, Recursor.fold, hn']
+        exact base.correct inp hn'
+      · simp [Trm.eval, Trm'.eval, Recursor.fold, hn']
+        nth_rw 1 [← R.unsplit_split inp <| Nat.zero_lt_of_ne_zero hn']
+        apply step.correct ((R.split inp).1, (R.split inp).2, _)
+        simp
+        constructor
+        · sorry
+        sorry
   }
 
 /- Finally we need tactics for relaxing the Pre and Post Conditions-/

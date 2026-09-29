@@ -199,7 +199,7 @@ attribute [aesop safe apply (transparency := default) (rule_sets := [VericodeL])
 def projCloseRule : TacticM Unit := do evalTactic (← `(tactic| projClose))
 
 attribute [aesop unsafe 90% apply (transparency := default) (rule_sets := [VericodeL])]
-  ListRecTactic ListRecTactic'
+  ListRecTactic
 
 attribute [aesop unsafe 70% apply (transparency := default) (rule_sets := [VericodeL])]
   ConsTactic PairTactic LETactic
