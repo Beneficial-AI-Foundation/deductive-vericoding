@@ -106,9 +106,9 @@ def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d) {Pre : s.denote �
       induction hn : R.depth inp using Nat.strongRecOn' generalizing inp
       expose_names
       by_cases hn' : R.depth inp = 0
-      · simp [Trm.eval, Trm'.eval, Recursor.fold, hn']
+      · simp [Trm.eval, Trm'.eval, Recursor.fold_eq, hn']
         exact base.correct inp hn'
-      · simp [Trm.eval, Trm'.eval, Recursor.fold, hn']
+      · simp [Trm.eval, Trm'.eval, Recursor.fold_eq, hn']
         nth_rw 1 [← R.unsplit_split inp <| Nat.zero_lt_of_ne_zero hn']
         apply step.correct ((R.split inp).1, (R.split inp).2, _)
         simp

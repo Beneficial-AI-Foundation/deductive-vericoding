@@ -105,6 +105,30 @@ abbrev dup.map {s t : Tpe} (f : s.denote → t.denote) : {d : Nat} → (dup s d)
   | 1, x => f x
   | _ + 2, ⟨x, xs⟩ => (f x, dup.map f xs)
 
+/- A dependent version of `dup.map`: the mapped function additionally receives a
+   proof that its argument satisfies `P`, which holds of every entry of the tuple.
+   This is what lets `Recursor.fold` below pass the termination checker -- with the
+   plain `dup.map` the recursive call is generalized over an arbitrary element of
+   `s.denote` and the descent proof is lost. -/
+def dup.pmap {s t : Tpe} {P : s.denote → Prop} (f : (y : s.denote) → P y → t.denote) :
+    {d : Nat} → (x : (dup s d).denote) → (∀ y ∈ dup.toList x, P y) → (dup t d).denote
+  | 0, _, _ => ()
+  | 1, x, h => f x (h x (by simp [dup.toList]))
+  | _ + 2, ⟨x, xs⟩, h =>
+      (f x (h x (by simp [dup.toList])),
+       dup.pmap f xs (fun y hy => h y (by simp [dup.toList]; exact Or.inr hy)))
+
+@[simp]
+theorem dup.pmap_eq_map {s t : Tpe} {P : s.denote → Prop} {d : Nat} (g : s.denote → t.denote)
+    (x : (dup s d).denote) (h : ∀ y ∈ dup.toList x, P y) :
+    dup.pmap (fun y _ => g y) x h = dup.map g x := by
+  induction d with
+  | zero => rfl
+  | succ n ih =>
+    match n, x with
+    | 0, x => rfl
+    | n + 1, ⟨x, xs⟩ => simp [dup.pmap, dup.map, ih]
+
 @[simp]
 theorem dup.map_map {s t u: Tpe} {d : Nat} (f : s.denote → t.denote) (g : t.denote → u.denote) (x : (dup s d).denote) :
     dup.map g (dup.map f x) = dup.map (g ∘ f) x := by
@@ -147,12 +171,48 @@ structure Recursor (s u : Tpe) (d : Nat) where
   -- descending : ∀ x, depth x > 0 → dup.foldl (t := .nat) max (dup.map depth (split x).snd) < depth x
   descending : ∀ x, depth x > 0 → ((dup.toList (split x).snd).map depth).foldl max 0 < depth x
 
-/- The list recursion function associated with a Recursor `R`. -/
+/-- The running `max` fold over a list of naturals dominates its starting value. -/
+private theorem init_le_foldl_max : ∀ (l : List Nat) (init : Nat), init ≤ l.foldl max init
+  | [], _ => Nat.le_refl _
+  | b :: l, init => Nat.le_trans (Nat.le_max_left init b) (init_le_foldl_max l (max init b))
+
+/-- Every element of a list of naturals is bounded by its `max` fold. -/
+private theorem le_foldl_max {a : Nat} {l : List Nat} :
+    ∀ {init : Nat}, a ∈ l → a ≤ l.foldl max init := by
+  induction l with
+  | nil => intro _ h; cases h
+  | cons b l ih =>
+    intro init h
+    rcases List.mem_cons.mp h with rfl | h'
+    · exact Nat.le_trans (Nat.le_max_right init a) (init_le_foldl_max l (max init a))
+    · exact ih h'
+
+/- The list recursion function associated with a Recursor `R`.
+
+   The recursive calls are made through `dup.pmap` rather than `dup.map` so that
+   each call carries the proof that its argument is smaller than `x`; `R.descending`
+   supplies that proof via `le_foldl_max`. See `Recursor.fold_eq` for the unfolding
+   equation stated with the plain `dup.map`. -/
 def Recursor.fold {s t u : Tpe} {d : Nat} (R : Recursor s u d) (base : s.denote → t.denote)
-  (step : u.denote × ((dup s d).denote × (dup t d).denote) → t.denote) (x : s.denote) : t.denote := if R.depth x = 0 then base x else step ⟨(R.split x).1, (R.split x).2 ,dup.map (R.fold base step) (R.split x).2⟩
+  (step : u.denote × ((dup s d).denote × (dup t d).denote) → t.denote) (x : s.denote) : t.denote :=
+  if hx : R.depth x = 0 then base x else
+    step ⟨(R.split x).1, (R.split x).2,
+      dup.pmap (P := fun y => R.depth y < R.depth x) (fun y _ => R.fold base step y) (R.split x).2
+        (fun y hy => Nat.lt_of_le_of_lt (le_foldl_max (List.mem_map_of_mem hy))
+          (R.descending x (Nat.pos_of_ne_zero hx)))⟩
   termination_by (R.depth x)
   decreasing_by
-  sorry
+  assumption
+
+/- The defining equation of `Recursor.fold`, phrased with the plain `dup.map`
+   (`dup.pmap` is only needed to get the definition past the termination checker). -/
+theorem Recursor.fold_eq {s t u : Tpe} {d : Nat} (R : Recursor s u d) (base : s.denote → t.denote)
+    (step : u.denote × ((dup s d).denote × (dup t d).denote) → t.denote) (x : s.denote) :
+    R.fold base step x =
+      if R.depth x = 0 then base x
+      else step ⟨(R.split x).1, (R.split x).2, dup.map (R.fold base step) (R.split x).2⟩ := by
+  rw [Recursor.fold]
+  split <;> simp
 
 inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | unit : Trm' rep .unit

@@ -60,10 +60,10 @@ def AppendConstantSolution : AppendConstantProblem := {
       (.lam fun p => .cons (.fst (.var p)) (.snd (.snd (.var p))))
   correct inp _ := by
     induction inp with
-    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold, UnCons]
+    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold_eq, UnCons]
     | cons a l ih =>
       simp [Trm.eval, Trm'.eval] at ⊢ ih
-      rw [Recursor.fold]
+      rw [Recursor.fold_eq]
       simpa [UnCons]
 }
 
@@ -72,10 +72,10 @@ def AppendSolution : AppendProblem := {
   correct inp _ := by
     obtain ⟨p, inp⟩ := inp
     induction inp with
-    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold, UnCons, Param]
+    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold_eq, UnCons, Param]
     | cons a l ih =>
       simp [Trm.eval, Trm'.eval] at ⊢ ih
-      rw [Recursor.fold]
+      rw [Recursor.fold_eq]
       simpa [UnCons, Param]
 }
 
@@ -96,17 +96,17 @@ def ConcatSolution : ConcatProblem := {
   correct inp _ := by
     obtain ⟨p, inp⟩ := inp
     induction inp with
-    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold, UnCons, Param]
+    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold_eq, UnCons, Param]
     | cons a l ih =>
       simp [Trm.eval, Trm'.eval] at ⊢ ih
-      rw [Recursor.fold]
+      rw [Recursor.fold_eq]
       simpa [UnCons, Param]
 }
 
 def IsEmptySolution : IsEmptyProblem := {
   code := .listRec UnCons (.lam fun k => .true) (.lam fun k => .false)
   correct inp _ := by
-    obtain ⟨_, _⟩ := inp <;> simp [Trm'.eval, Trm.eval, UnCons, Recursor.fold]
+    obtain ⟨_, _⟩ := inp <;> simp [Trm'.eval, Trm.eval, UnCons, Recursor.fold_eq]
 }
 
 /- # HARDER PROBLEMS-/
@@ -116,7 +116,7 @@ def SplitSolution : SplitProblem := {
   correct inp pre := by
     induction inp with
     | nil => contradiction
-    | cons a l _ => simp [Trm.eval, Trm'.eval, Recursor.fold, UnCons]
+    | cons a l _ => simp [Trm.eval, Trm'.eval, Recursor.fold_eq, UnCons]
 }
 
 /-! # Derivations via the vericoding combinators
