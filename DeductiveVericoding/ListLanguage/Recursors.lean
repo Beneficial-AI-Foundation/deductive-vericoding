@@ -38,8 +38,8 @@ def UnCons : Recursor .list .nat 1 := {
 }
 
 @[simp]
-theorem UnCons.depth_eq_zero_iff (l : List Nat) : UnCons.depth l = 0 ↔ [] = l := by
-  simp [UnCons, List.length_eq_zero_iff]
+theorem UnCons.depth_eq_zero_iff (l : List Nat) : UnCons.depth l = 0 ↔ l = [] :=
+  List.length_eq_zero_iff
 
 @[simp]
 def leading_part : Nat → List Nat → List Nat
