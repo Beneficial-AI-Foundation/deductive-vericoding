@@ -58,12 +58,25 @@ partial def mkNestedTuple (xs : Array Expr) : MetaM Expr := do
 ```
 Impl I O (fun inp => x = s) (fun inp out => … s …)
 ```
-where the precondition `Pre inp` reduces to an equality `x = s` (typically `x` is the
-recursive result and `s` the term it stands for), and `s` also occurs in the postcondition.
-`pushpre` rewrites the postcondition by replacing every occurrence of `s` with `x`, i.e.
-relaxes to `Post' := fun inp out => (… s …)[s ↦ x]`, and applies `RelaxPostTactic`, discharging
-the side goal `∀ inp, Pre inp → ∀ out, Post' inp out → Post inp out` automatically. Only the
-implementation subgoal `Impl I O Pre Post'` remains. -/
+where the precondition `Pre inp` reduces to an equality between two terms, one of which also
+occurs in the postcondition. `pushpre` rewrites the postcondition by replacing occurrences of
+one side with the other, applies `RelaxPostTactic`, and discharges the side goal
+`∀ inp, Pre inp → ∀ out, Post' inp out → Post inp out` automatically. Only the implementation
+subgoal `Impl I O Pre Post'` remains.
+
+The direction is chosen automatically, since both are needed:
+
+* **Step goals** (`res = f inp`): both sides mention the input, so the RHS is abstracted and
+  the postcondition is re-expressed via the recursive result — `out = hd :: (tl ++ [a])`
+  becomes `out = hd :: res`. This is the original behaviour.
+* **Base goals** (`inp = []`, from `R.depth inp = 0`): one side is ground, so the *input* side
+  is abstracted and the postcondition is specialised — `out = inp.2 ++ [inp.1]` becomes
+  `out = [] ++ [inp.1]`.
+
+Abstracting the ground side instead would match incidentally (the `[]` inside a literal
+`[a] = a :: []`) and produce a nonsense `Post'`, so the input-dependent side wins. Matching is
+up to defeq, so it does not matter whether the two sides of the goal happen to encode their
+projections the same way, nor which way round `simp` left the equality. -/
 elab "pushpre" : tactic => do
   let goals ← getGoals
   if goals.isEmpty then throwError "pushpre: no goals"
@@ -85,13 +98,34 @@ elab "pushpre" : tactic => do
     let preBody ← whnf (mkApp Pre tuple)
     unless preBody.isAppOfArity ``Eq 3 do
       throwError "pushpre: precondition does not reduce to an equality `x = s`:{indentExpr preBody}"
-    let x := preBody.getAppArgs[1]!
-    let s := preBody.getAppArgs[2]!
+    let lhs := preBody.getAppArgs[1]!
+    let rhs := preBody.getAppArgs[2]!
+    -- Which side do we abstract? A side that mentions no input component (e.g. `[]`) is
+    -- ground and would match incidentally — inside a list literal `[a] = a :: []`, say — so
+    -- prefer to abstract the input-dependent side. When both mention the input (the step
+    -- case) abstract the RHS, replacing `f inp` by the recursive result.
+    let dependsOnInput (e : Expr) : Bool :=
+      e.hasAnyFVar fun fid => cs.any (fun c => c.fvarId! == fid)
+    let preferred :=
+      if dependsOnInput rhs && !dependsOnInput lhs then (rhs, lhs)
+      else if dependsOnInput lhs && !dependsOnInput rhs then (lhs, rhs)
+      else (rhs, lhs)
     withLocalDeclD `out (denote O) fun out => do
       let postBody ← whnf (mkAppN Post #[tuple, out])
-      unless (postBody.find? (· == s)).isSome do
-        throwError "pushpre: the precondition's RHS does not occur in the postcondition"
-      let newBody := postBody.replace fun e => if e == s then some x else none
+      -- `kabstract` matches up to defeq (keyed on the head symbol). A syntactic `==` test
+      -- is not enough: the precondition and the postcondition reach the goal by different
+      -- routes and encode projections differently (raw `Expr.proj` vs `Prod.fst` applied),
+      -- so terms that print identically are not structurally equal.
+      let tryDir (pat repl : Expr) : MetaM (Option Expr) := do
+        let abst ← kabstract postBody pat
+        if abst.hasLooseBVars then pure (some (abst.instantiate1 repl)) else pure none
+      let (pat, repl) := preferred
+      let newBody? ← do
+        match ← tryDir pat repl with
+        | some b => pure (some b)
+        | none => tryDir repl pat
+      let some newBody := newBody?
+        | throwError "pushpre: neither side of the precondition occurs in the postcondition"
       withLocalDeclD `inp (denote I) fun inp => do
         let mut projs := #[]
         let mut acc := inp
@@ -114,11 +148,20 @@ elab "pushpre" : tactic => do
       setGoals [g]
       let ids ← (Array.range m).mapM fun i =>
         `(rcasesPat| $(mkIdent (Name.mkSimple s!"y{i}")):ident)
+      -- Only destructure when the input really is a nested product: for `m = 1` the pattern
+      -- `⟨y0⟩` would split the input by its own constructor (a list into `head :: tail`).
+      let destr ← if m > 1 then `(tactic| obtain ⟨$ids,*⟩ := pinp) else `(tactic| skip)
+      -- Either side may have been abstracted, so try both rewrite directions.
       evalTactic (← `(tactic|
-        intro pinp phpre pout phpost <;>
-        obtain ⟨$ids,*⟩ := pinp <;>
-        rw [phpre] at phpost <;>
-        exact phpost))
+        intro pinp phpre pout phpost <;> $destr <;>
+        first
+          | exact phpost
+          | (subst phpre; exact phpost)
+          | (rw [phpre] at phpost; exact phpost)
+          | (rw [← phpre] at phpost; exact phpost)
+          | (rw [phpre]; exact phpost)
+          | (rw [← phpre]; exact phpost)
+          | simp_all))
   setGoals (implGoals.toList ++ restGoals)
 
 /-! # THE `vericode` TACTIC
