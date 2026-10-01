@@ -206,8 +206,9 @@ def AppendConstantSolution' : AppendConstantProblem := by
   apply ListRecTactic UnCons
   · simp
   · apply ConsTactic
-    simp only [denote, UnCons.depth_eq_zero_iff, List.append_eq]
+    simp [denote, UnCons.depth_eq_zero_iff, List.append_eq]
     pushpre
+    simp
     Vpair
     · apply NumTactic 1
       simp
@@ -232,9 +233,11 @@ def AppendSolution' : AppendProblem := by
   · simp
   · simp [Param, UnCons.depth_eq_zero_iff]
     pushpre
+    simp
     apply ConsTactic
     Vpair
-    · apply IdentityTactic
+    · apply FstTactic
+      apply IdentityTactic
       simp
     apply NilTactic
     simp
@@ -255,13 +258,10 @@ def AppendSolution' : AppendProblem := by
 def ConcatSolution' : ConcatProblem := by
   apply ListRecTactic (Param (t:=.list) Nat.one_pos UnCons)
   · simp
-  · apply ConsTactic
-    simp [Param, UnCons.depth_eq_zero_iff]
+  · simp [Param, UnCons.depth_eq_zero_iff]
     pushpre
-    Vpair
-    · apply IdentityTactic
-      simp
-    apply NilTactic
+    apply FstTactic
+    apply IdentityTactic
     simp
   · simp [Tpe.denote, dup, UnCons, Param, dup.map]
     pushpre
@@ -278,10 +278,11 @@ def ConcatSolution' : ConcatProblem := by
 #eval ListLanguage.Trm.pretty ConcatSolution'.code
 
 def SplitSolution' : SplitProblem := by
-  apply ListRecTactic''
+  apply ListRecTactic' UnCons
   · apply ContradictionTactic
     simp
-  · Vpair
+  · simp [UnCons]
+    Vpair
     · apply FstTactic
       apply IdentityTactic
       simp
@@ -290,35 +291,37 @@ def SplitSolution' : SplitProblem := by
       simp
 
 def ReverseSolution' : ReverseProblem := by
-  apply ListRecTactic'
+  apply ListRecTactic UnCons
   · simp
   · apply NilTactic
     simp
-  simp
+  simp [UnCons]
   pushpre
   apply RelaxPreTactic (fun _ => True)
   · simp
-  apply SwapTactic
-  apply ListRecTactic
+  apply AssocTactic
+  simp [dup]
+  apply ListRecTactic (Param (t:=.nat ×L .list) Nat.one_pos UnCons)
   · simp
-  · apply ConsTactic
+  · simp [Param]
+    pushpre
+    apply ConsTactic
     simp
     Vpair
     · apply FstTactic
+      apply FstTactic
       apply IdentityTactic
       simp
     · apply NilTactic
       simp
-  · simp
+  · simp [Param, UnCons]
     pushpre
     apply ConsTactic
     Vpair
     · apply FstTactic
-      apply SndTactic
-      apply SndTactic
       apply IdentityTactic
       simp
-    · apply FstTactic
+    · apply SndTactic
       apply SndTactic
       apply IdentityTactic
       simp
