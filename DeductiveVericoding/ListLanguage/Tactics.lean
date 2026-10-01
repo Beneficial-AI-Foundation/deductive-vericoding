@@ -92,29 +92,59 @@ def SwapTactic {s t u : Tpe} {Pre : s.denote × t.denote → Prop} {Post : s.den
   { code := .lam fun k => .app impl.code (.mkPair (.snd (.var k)) (.fst (.var k))),
     correct inp pre := impl.correct ⟨inp.2, inp.1⟩ pre }
 
+--should be scrapped
+
+def AssocTactic {s t u v : Tpe} {Pre : v.denote × s.denote × t.denote → Prop} {Post : v.denote × s.denote × t.denote → u.denote → Prop}
+  (impl : Impl ((v ×L s) ×L t) u (fun ⟨⟨x, y⟩, z⟩ => Pre ⟨x, y, z⟩) (fun ⟨⟨x, y⟩, z⟩ out => Post ⟨x, y, z⟩ out)) :
+    Impl (v ×L s ×L t) u Pre Post :=
+  { code := .lam fun k => .app impl.code <| .mkPair (.mkPair  (.fst (.var k)) (.fst (.snd (.var k)))) (.snd (.snd (.var k))),
+    correct inp pre := impl.correct ⟨⟨inp.1, inp.2.1⟩, inp.2.2⟩ pre }
+
 /-Recursion Tactics-/
 
-def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d) {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
-  (h : ∀ x, Pre x → ((dup.toList (R.split x).2).map Pre).foldl And true)
-  (base : Impl s t (fun inp ↦ R.depth inp = 0) Post)
-  (step : Impl (u ×L dup s d ×L dup t d) t
-   (fun (p, (inp, res)) ↦ (((dup.toList inp).zip (dup.toList res)).map (fun x ↦ Post x.1 x.2)).foldl And true ∧ ((dup.toList inp).map Pre).foldl And true)
-   (fun (p, inp, _) out ↦ Post (R.unsplit (p, inp)) out)) :
+def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d)
+    {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
+    (h : ∀ x, Pre x → 0 < R.depth x → dup.Forall Pre (R.split x).2)
+    (base : Impl s t (fun inp ↦ R.depth inp = 0 ∧ Pre inp) Post)
+    (step : Impl (u ×L dup s d ×L dup t d) t
+      (fun (_p, (inp, res)) ↦ dup.Forall₂ Post inp res ∧ dup.Forall Pre inp)
+      (fun (p, inp, _) out ↦ Post (R.unsplit (p, inp)) out)) :
     Impl s t Pre Post :=
   { code := .listRec R base.code step.code
+    correct := by
+      intro inp
+      -- `Trm.eval` of a `.listRec` is definitionally the recursor's fold.
+      show Pre inp → Post inp (R.fold base.code.eval step.code.eval inp)
+      induction inp using Recursor.fold.induct R with
+      | case1 x hx =>
+        intro pre
+        rw [R.fold_eq, if_pos hx]
+        exact base.correct x ⟨hx, pre⟩
+      | case2 x hx ih =>
+        intro pre
+        have hpos : 0 < R.depth x := Nat.pos_of_ne_zero hx
+        have hPre := (dup.forall_iff _).mp (h x pre hpos)
+        rw [R.fold_eq, if_neg hx]
+        nth_rw 1 [← R.unsplit_split x hpos]
+        -- Each child is smaller, so the induction hypothesis gives it its `Post`;
+        -- `dup.forall₂_map` lifts that pointwise over the whole tuple of children.
+        exact step.correct ((R.split x).1, (R.split x).2, _)
+          ⟨dup.forall₂_map _ fun y hy => ih y (R.depth_lt_of_mem hpos hy) (hPre y hy),
+           h x pre hpos⟩
+  }
+
+def ListRecTactic' {s t u : Tpe} {d : Nat} (R : Recursor s u d) {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
+  (base : Impl s t (fun inp ↦ R.depth inp = 0 ∧ Pre inp) Post)
+  (step : Impl (u ×L dup s d) t (fun inp ↦ Pre (R.unsplit inp)) (fun inp out ↦ Post (R.unsplit inp) out)) :
+    Impl s t Pre Post :=
+  { code := .listRec R base.code (.lam fun k => .app step.code <| .mkPair (.fst (.var k)) (.fst (.snd (.var k))))
     correct inp pre := by
-      induction hn : R.depth inp using Nat.strongRecOn' generalizing inp
-      expose_names
-      by_cases hn' : R.depth inp = 0
-      · simp [Trm.eval, Trm'.eval, Recursor.fold_eq, hn']
-        exact base.correct inp hn'
-      · simp [Trm.eval, Trm'.eval, Recursor.fold_eq, hn']
-        nth_rw 1 [← R.unsplit_split inp <| Nat.zero_lt_of_ne_zero hn']
-        apply step.correct ((R.split inp).1, (R.split inp).2, _)
-        simp
-        constructor
-        · sorry
-        sorry
+      simp [Trm.eval, Trm'.eval, Recursor.fold]
+      by_cases h : R.depth inp = 0 <;> simp [h]
+      · exact base.correct inp ⟨h, pre⟩
+      nth_rw 1 [← R.unsplit_split inp (Nat.zero_lt_of_ne_zero h)]
+      apply step.correct
+      rwa [R.unsplit_split inp (Nat.zero_lt_of_ne_zero h)]
   }
 
 /- Finally we need tactics for relaxing the Pre and Post Conditions-/
