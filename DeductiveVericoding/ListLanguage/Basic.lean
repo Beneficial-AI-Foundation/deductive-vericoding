@@ -162,6 +162,37 @@ theorem dup.toList_length {s : Tpe} {d : Nat} (x : (dup s d).denote) :
   induction n; rfl
   simpa [toList] using h x.2
 
+/-- `P` holds of every entry of a `dup` tuple. The structural counterpart of
+    `∀ y ∈ dup.toList x, P y` — see `dup.forall_iff`. -/
+@[simp] def dup.Forall {s : Tpe} (P : s.denote → Prop) : {d : Nat} → (dup s d).denote → Prop
+  | 0, _ => True
+  | 1, x => P x
+  | _ + 2, x => P x.1 ∧ dup.Forall P x.2
+
+/-- `Rel` holds pointwise between two `dup` tuples of the same width. -/
+@[simp] def dup.Forall₂ {s t : Tpe} (Rel : s.denote → t.denote → Prop) :
+    {d : Nat} → (dup s d).denote → (dup t d).denote → Prop
+  | 0, _, _ => True
+  | 1, x, y => Rel x y
+  | _ + 2, x, y => Rel x.1 y.1 ∧ dup.Forall₂ Rel x.2 y.2
+
+theorem dup.forall_iff {s : Tpe} {P : s.denote → Prop} :
+    {d : Nat} → (x : (dup s d).denote) → (dup.Forall P x ↔ ∀ y ∈ dup.toList x, P y)
+  | 0, _ => by simp [dup.Forall]
+  | 1, _ => by simp [dup.Forall]
+  | _ + 2, x => by simp [dup.Forall, dup.toList, dup.forall_iff x.2]
+
+/-- Mapping a function over a `dup` tuple relates each entry to its image. This is what lets
+    `ListRecTactic` hand the step case one `Post` per recursive call. -/
+theorem dup.forall₂_map {s t : Tpe} {Rel : s.denote → t.denote → Prop} {f : s.denote → t.denote} :
+    {d : Nat} → (x : (dup s d).denote) → (∀ y ∈ dup.toList x, Rel y (f y)) →
+    dup.Forall₂ Rel x (dup.map f x)
+  | 0, _, _ => trivial
+  | 1, x, hf => hf x (by simp [dup.toList])
+  | _ + 2, x, hf =>
+      ⟨hf x.1 (by simp [dup.toList]),
+       dup.forall₂_map x.2 fun y hy => hf y (by simp [dup.toList]; exact Or.inr hy)⟩
+
 /- A Recursor used for list recursion. Provides oracle access to a splitting function and provides a proof of finite descent. -/
 structure Recursor (s u : Tpe) (d : Nat) where
   split : s.denote → u.denote × (dup s d).denote
@@ -187,6 +218,12 @@ private theorem le_foldl_max {a : Nat} {l : List Nat} :
     · exact Nat.le_trans (Nat.le_max_right init a) (init_le_foldl_max l (max init a))
     · exact ih h'
 
+/-- Every child produced by `R.split` is strictly smaller than its parent. This is the descent
+    fact in the form both `Recursor.fold`'s termination proof and `ListRecTactic` need it. -/
+theorem Recursor.depth_lt_of_mem {s u : Tpe} {d : Nat} (R : Recursor s u d) {x y : s.denote}
+    (hx : 0 < R.depth x) (hy : y ∈ dup.toList (R.split x).2) : R.depth y < R.depth x :=
+  Nat.lt_of_le_of_lt (le_foldl_max (List.mem_map_of_mem hy)) (R.descending x hx)
+
 /- The list recursion function associated with a Recursor `R`.
 
    The recursive calls are made through `dup.pmap` rather than `dup.map` so that
@@ -198,8 +235,7 @@ def Recursor.fold {s t u : Tpe} {d : Nat} (R : Recursor s u d) (base : s.denote 
   if hx : R.depth x = 0 then base x else
     step ⟨(R.split x).1, (R.split x).2,
       dup.pmap (P := fun y => R.depth y < R.depth x) (fun y _ => R.fold base step y) (R.split x).2
-        (fun y hy => Nat.lt_of_le_of_lt (le_foldl_max (List.mem_map_of_mem hy))
-          (R.descending x (Nat.pos_of_ne_zero hx)))⟩
+        (fun y hy => R.depth_lt_of_mem (Nat.pos_of_ne_zero hx) hy)⟩
   termination_by (R.depth x)
   decreasing_by
   assumption
