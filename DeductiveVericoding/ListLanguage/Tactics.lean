@@ -107,7 +107,7 @@ def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d)
     (h : ∀ x, Pre x → 0 < R.depth x → dup.Forall Pre (R.split x).2)
     (base : Impl s t (fun inp ↦ R.depth inp = 0 ∧ Pre inp) Post)
     (step : Impl (u ×L dup s d ×L dup t d) t
-      (fun (_p, (inp, res)) ↦ dup.Forall₂ Post inp res ∧ dup.Forall Pre inp)
+      (fun (p, (inp, res)) ↦ dup.Forall₂ Post inp res ∧ Pre (R.unsplit (p, inp)))
       (fun (p, inp, _) out ↦ Post (R.unsplit (p, inp)) out)) :
     Impl s t Pre Post :=
   { code := .listRec R base.code step.code
@@ -128,9 +128,10 @@ def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d)
         nth_rw 1 [← R.unsplit_split x hpos]
         -- Each child is smaller, so the induction hypothesis gives it its `Post`;
         -- `dup.forall₂_map` lifts that pointwise over the whole tuple of children.
-        exact step.correct ((R.split x).1, (R.split x).2, _)
+        refine step.correct ((R.split x).1, (R.split x).2, _)
           ⟨dup.forall₂_map _ fun y hy => ih y (R.depth_lt_of_mem hpos hy) (hPre y hy),
-           h x pre hpos⟩
+           ?_⟩
+        rwa [R.unsplit_split x hpos]
   }
 
 def ListRecTactic' {s t u : Tpe} {d : Nat} (R : Recursor s u d) {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
