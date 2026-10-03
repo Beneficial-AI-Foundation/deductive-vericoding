@@ -1,5 +1,6 @@
 import Mathlib.Data.List.Perm.Basic
 import DeductiveVericoding.ListLanguage.Tactics
+import DeductiveVericoding.ListLanguage.Recursors
 import DeductiveVericoding.ListLanguage.VericodeTactic
 
 open ListLanguage
@@ -13,6 +14,11 @@ def Ordered : List Nat → Prop
 def Sorted (inp out : List Nat) : Prop := Ordered out ∧ (List.Perm inp out)
 
 /- ## Properties of the base case -/
+
+lemma Ordered_tail (a : Nat) (l : List Nat) (hl : Ordered <| a :: l) : Ordered l := by
+  induction l
+  · simp [Ordered]
+  exact hl.2
 
 lemma NilSorted_iff (out : List Nat) : Sorted [] out ↔ out = [] := by
   simp only [Sorted, List.nil_perm, and_iff_right_iff_imp]
@@ -86,82 +92,85 @@ abbrev InsertionSortProblem := Impl .list .list (fun _ => True) (fun inp out => 
 abbrev InsertProblem := Impl (.pair .nat .list) .list (fun inp => Ordered inp.2) (fun ⟨a, l⟩ out => Sorted (a :: l) out)
 
 def InsertionSolution : InsertProblem := by
-  apply ListRecTactic
-  · intro _ _ l
+  apply ListRecTactic <| Param (t:=.nat) Nat.one_pos UnCons
+  · simp [Param, UnCons]
+    intro l h1 h2
     induction l with -- use grind here
     | nil => simp [Ordered]
-    | cons a l _ => simp [Ordered]
-  · simp [SingletonSorted_iff]
+    | cons a l _ => exact Ordered_tail _ _ h1
+  · simp [Param]
+    apply RelaxPreTactic (I:=.nat ×L .list) (fun inp => inp.2 = [])
+    · simp
+    pushpre
+    apply RelaxPostTactic _ (fun (inp : Nat × List Nat) out => Sorted [inp.1] out) ?_ (by simp [Sorted])
+    simp [SingletonSorted_iff]
     apply ConsTactic
     Vpair
-    · apply IdentityTactic
+    · apply FstTactic
+      apply IdentityTactic
       simp
     apply NilTactic
     simp
-
-  refine CasesTactic (fun inp => Nat.ble inp.1 inp.2.2.1) ?_ ?_ ?_
+  simp [dup, Param, UnCons, dup.map]
+  refine CasesTactic (fun inp => Nat.ble inp.2.1.1 inp.1) ?_ ?_ ?_
   · apply LETactic
     · simp
-      refine UseTactic (fun inp => (inp.1, inp.2.2.1)) ?_ ?_
+      refine UseTactic (fun inp => (inp.2.1.1, inp.1)) ?_ ?_
       · Vpair
         · apply FstTactic
+          apply FstTactic
+          apply SndTactic
           apply IdentityTactic
           simp
         · apply FstTactic
-          apply SndTactic
-          apply SndTactic
           apply IdentityTactic
           simp
       · simp
   · simp
-    refine UseTactic (fun inp => inp.1 :: inp.2.2.1 :: inp.2.2.2) ?_ ?_
+    refine UseTactic (fun inp => inp.2.1.1 :: inp.1 :: inp.2.1.2) ?_ ?_
     · apply ConsTactic
       Vpair
       · apply FstTactic
+        apply FstTactic
+        apply SndTactic
         apply IdentityTactic
         simp
       apply ConsTactic
       Vpair
       · apply FstTactic
-        apply SndTactic
-        apply SndTactic
         apply IdentityTactic
         simp
       · apply SndTactic
-        apply SndTactic
+        apply FstTactic
         apply SndTactic
         apply IdentityTactic
         simp
     · intro inp pre
-      change match inp with
-      | (p, _res, a, l) => Sorted (p :: a :: l) (p :: a :: l)
       simp [SortedSelf_iff, Ordered] --grind here
       exact ⟨pre.2, pre.1.2⟩
   simp
-  refine UseTactic (fun inp => inp.2.2.1 :: inp.2.1) ?_ ?_
+  refine UseTactic (fun inp => inp.1 :: inp.2.2) ?_ ?_
   · apply ConsTactic
     Vpair
     · apply FstTactic
-      apply SndTactic
+      apply IdentityTactic
+      simp
+    · apply SndTactic
       apply SndTactic
       apply IdentityTactic
       simp
-    · apply FstTactic
-      apply SndTactic
-      apply IdentityTactic
-      simp
-  · intro (p, res, a, l) pre
+  · simp [Tpe.denote]
+    intro a b l res hbl hal hab
     simp_all [Sorted, Ordered_iff_all_ge_head]
-    obtain ⟨⟨hpl, ⟨hal, hl⟩⟩, hap⟩ := pre
     constructor
     · intro x hx
-      have : x ∈ (p :: l) := by grind
+      have : x ∈ (b :: l) := by grind
       simp at this
       cases this with
-      | inl h => exact h ▸ Nat.le_of_succ_le hap
-      | inr h => exact hal x h
+      | inl h => exact h ▸ Nat.le_of_succ_le hab
+      | inr h => exact hal.1 x h
     apply List.Perm.trans (List.Perm.swap _ _ _)
-    apply List.Perm.cons _ hpl.2
+    exact List.Perm.cons _ hbl.2
 
 def InsertionSortSolution : InsertionSortProblem := by
   apply ListRecTactic'
