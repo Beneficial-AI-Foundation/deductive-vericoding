@@ -173,26 +173,27 @@ def InsertionSolution : InsertProblem := by
     exact List.Perm.cons _ hbl.2
 
 def InsertionSortSolution : InsertionSortProblem := by
-  apply ListRecTactic'
+  apply ListRecTactic UnCons
   · simp
   · refine UseTactic (fun inp => []) ?_ ?_
     · apply NilTactic
       simp
     · simp [Sorted, Ordered]
-  refine RelaxPostTactic _ (fun (res, a, l) out => Sorted (a :: res) out) ?_ ?_
-  · refine RelaxPreTactic (fun (res, a, l) => Ordered res) (fun _ pre => pre.1) ?_
-    refine SplitTactic (.pair .list (.pair .nat .list)) (.pair .nat .list) .list (fun (res, a, l) => (a, res)) (fun (a, res) out => Sorted (a :: res) out) ?_ ?_
+  simp [dup, UnCons]
+  refine RelaxPostTactic _ (fun (a, l, res) out => Sorted (a :: res) out) ?_ ?_
+  · refine RelaxPreTactic (fun (a, l, res) => Ordered res) (fun _ pre => pre.1) ?_
+    refine SplitTactic (.pair .nat (.pair .list .list)) (.pair .nat .list) .list (fun (a, l, res) => (a, res)) (fun (a, res) out => Sorted (a :: res) out) ?_ ?_
     · Vpair
       · apply FstTactic
-        apply SndTactic
         apply IdentityTactic
         simp
-      · apply FstTactic
+      · apply SndTactic
+        apply SndTactic
         apply IdentityTactic
         simp
     refine RelaxPreTactic (fun (a, res) => Ordered res) ?_ ?_
     · intro (a, res) ⟨s, hs1, hs2⟩
-      have : res = s.1 := by grind
+      have : res = s.2.2 := by grind
       exact this ▸ hs1
     exact InsertionSolution
   · intro (a, l, res) pre out
