@@ -1,5 +1,6 @@
 import DeductiveVericoding.ListLanguage.Problems
 import DeductiveVericoding.ListLanguage.Tactics
+import DeductiveVericoding.ListLanguage.Recursors
 import DeductiveVericoding.ListLanguage.VericodeTactic
 
 open ListLanguage Tpe
@@ -55,27 +56,27 @@ def List123Solution : List123Problem := {
 }
 
 def AppendConstantSolution : AppendConstantProblem := {
-  code := .lam fun l => .app
-    (.listRec (.lam fun _ => .cons (.num 1) .nil)
-      (.lam fun p => .cons (.fst (.snd (.snd (.var p)))) (.fst (.snd (.var p)))))
-    (.mkPair .unit (.var l))
+  code := .listRec UnCons (.lam fun _ => .cons (.num 1) .nil)
+      (.lam fun p => .cons (.fst (.var p)) (.snd (.snd (.var p))))
   correct inp _ := by
     induction inp with
-    | nil => rfl
+    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold_eq, UnCons]
     | cons a l ih =>
-      simp [Trm.eval, Trm'.eval, Trm'.eval.go] at ⊢ ih
-      congr
+      simp [Trm.eval, Trm'.eval] at ⊢ ih
+      rw [Recursor.fold_eq]
+      simpa [UnCons]
 }
 
 def AppendSolution : AppendProblem := {
-  code := .listRec (.lam fun k => .cons (.var k) .nil) (.lam fun p => .cons (.fst (.snd (.snd (.var p)))) (.fst (.snd (.var p))))
+  code := .listRec (Param (t:=.nat) Nat.one_pos UnCons) (.lam fun k => .cons (.fst (.var k)) .nil) (.lam fun p => .cons (.fst (.var p)) (.snd (.snd (.var p))))
   correct inp _ := by
-    obtain ⟨a, l⟩ := inp
-    induction l with
-    | nil => rfl
+    obtain ⟨p, inp⟩ := inp
+    induction inp with
+    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold_eq, UnCons, Param]
     | cons a l ih =>
-      simp [Trm.eval, Trm'.eval, Trm'.eval.go] at ⊢ ih
-      congr
+      simp [Trm.eval, Trm'.eval] at ⊢ ih
+      rw [Recursor.fold_eq]
+      simpa [UnCons, Param]
 }
 
 -- def ReverseSolution : ReverseProblem := {
@@ -91,30 +92,31 @@ def AppendSolution : AppendProblem := {
 -- }
 
 def ConcatSolution : ConcatProblem := {
-  code := .listRec (.lam fun k => (.var k)) (.lam fun p => .cons (.fst (.snd (.snd (.var p)))) (.fst (.snd (.var p))))
+  code := .listRec (Param (t:=.list) Nat.one_pos UnCons) (.lam fun k => .fst (.var k)) (.lam fun p => .cons (.fst (.var p)) (.snd (.snd (.var p))))
   correct inp _ := by
-    obtain ⟨l1, l2⟩ := inp
-    induction l2 with
-    | nil => rfl
+    obtain ⟨p, inp⟩ := inp
+    induction inp with
+    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold_eq, UnCons, Param]
     | cons a l ih =>
-      simp [Trm.eval, Trm'.eval, Trm'.eval.go] at ih ⊢
-      rw [ih]
+      simp [Trm.eval, Trm'.eval] at ⊢ ih
+      rw [Recursor.fold_eq]
+      simpa [UnCons, Param]
 }
 
 def IsEmptySolution : IsEmptyProblem := {
-  code := .lam fun l => .app (.listRec (.lam fun k => .true) (.lam fun p => .false)) (.mkPair .unit (.var l))
+  code := .listRec UnCons (.lam fun k => .true) (.lam fun k => .false)
   correct inp _ := by
-    obtain ⟨_, _⟩ := inp <;> simp [Trm'.eval, Trm.eval, Trm'.eval.go]
+    obtain ⟨_, _⟩ := inp <;> simp [Trm'.eval, Trm.eval, UnCons, Recursor.fold_eq]
 }
 
 /- # HARDER PROBLEMS-/
 
 def SplitSolution : SplitProblem := {
-  code := .lam fun k => .app (.listRec (.lam fun _ => .mkPair (.num 0) .nil) (.lam fun p => .mkPair (.fst (.snd (.snd (.var p)))) (.snd (.snd (.snd (.var p)))))) (.mkPair .nil (.var k))
+  code := .listRec UnCons (.lam fun _ => .mkPair (.num 0) .nil) (.lam fun k => .mkPair (.fst (.var k)) (.fst (.snd (.var k))))
   correct inp pre := by
     induction inp with
     | nil => contradiction
-    | cons a l ih => rfl
+    | cons a l _ => simp [Trm.eval, Trm'.eval, Recursor.fold_eq, UnCons]
 }
 
 /-! # Derivations via the vericoding combinators
@@ -201,81 +203,86 @@ def List123Solution' : List123Problem := by
 #eval ListLanguage.Trm.pretty List123Solution'.code
 
 def AppendConstantSolution' : AppendConstantProblem := by
-  apply ListRecTactic'
+  apply ListRecTactic UnCons
   · simp
   · apply ConsTactic
-    simp [Tpe.denote]
+    simp [denote, UnCons.depth_eq_zero_iff, List.append_eq]
+    pushpre
+    simp
     Vpair
     · apply NumTactic 1
       simp
     · apply NilTactic
       simp
-  · simp
+  · simp [Tpe.denote, dup, UnCons]
     pushpre
     apply ConsTactic
     Vpair
     · apply FstTactic
-      apply SndTactic
       apply IdentityTactic
       simp
-    · apply FstTactic
+    · apply SndTactic
+      apply SndTactic
       apply IdentityTactic
       simp
 
 #eval ListLanguage.Trm.pretty AppendConstantSolution'.code
 
 def AppendSolution' : AppendProblem := by
-  apply ListRecTactic
+  apply ListRecTactic (Param (t:=.nat) Nat.one_pos UnCons)
   · simp
-  · apply ConsTactic
+  · simp [Param, UnCons.depth_eq_zero_iff]
+    pushpre
     simp
+    apply ConsTactic
     Vpair
-    · apply IdentityTactic
+    · apply FstTactic
+      apply IdentityTactic
       simp
     apply NilTactic
     simp
-  simp
-  pushpre
-  apply ConsTactic
-  Vpair
-  · apply FstTactic
-    apply SndTactic
-    apply SndTactic
-    apply IdentityTactic
-    simp
-  · apply FstTactic
-    apply SndTactic
-    apply IdentityTactic
-    simp
+  · simp [Tpe.denote, dup, UnCons, Param, dup.map]
+    pushpre
+    apply ConsTactic
+    Vpair
+    · apply FstTactic
+      apply IdentityTactic
+      simp
+    · apply SndTactic
+      apply SndTactic
+      apply IdentityTactic
+      simp
 
 #eval ListLanguage.Trm.pretty AppendSolution'.code
 
 def ConcatSolution' : ConcatProblem := by
-  apply ListRecTactic
+  apply ListRecTactic (Param (t:=.list) Nat.one_pos UnCons)
   · simp
-  · apply IdentityTactic
-    simp
-  simp
-  pushpre
-  apply ConsTactic
-  Vpair
-  · apply FstTactic
-    apply SndTactic
-    apply SndTactic
+  · simp [Param, UnCons.depth_eq_zero_iff]
+    pushpre
+    apply FstTactic
     apply IdentityTactic
     simp
-  · apply FstTactic
-    apply SndTactic
-    apply IdentityTactic
-    simp
+  · simp [Tpe.denote, dup, UnCons, Param, dup.map]
+    pushpre
+    apply ConsTactic
+    Vpair
+    · apply FstTactic
+      apply IdentityTactic
+      simp
+    · apply SndTactic
+      apply SndTactic
+      apply IdentityTactic
+      simp
 
 #eval ListLanguage.Trm.pretty ConcatSolution'.code
 
 def SplitSolution' : SplitProblem := by
-  apply ListRecTactic''
+  apply ListRecTactic' UnCons
   · apply ContradictionTactic
     simp
-  · Vpair
+  · simp [UnCons]
+    Vpair
     · apply FstTactic
       apply IdentityTactic
       simp
@@ -284,35 +291,37 @@ def SplitSolution' : SplitProblem := by
       simp
 
 def ReverseSolution' : ReverseProblem := by
-  apply ListRecTactic'
+  apply ListRecTactic UnCons
   · simp
   · apply NilTactic
     simp
-  simp
+  simp [UnCons]
   pushpre
   apply RelaxPreTactic (fun _ => True)
   · simp
-  apply SwapTactic
-  apply ListRecTactic
+  apply AssocTactic
+  simp [dup]
+  apply ListRecTactic (Param (t:=.nat ×L .list) Nat.one_pos UnCons)
   · simp
-  · apply ConsTactic
+  · simp [Param]
+    pushpre
+    apply ConsTactic
     simp
     Vpair
     · apply FstTactic
+      apply FstTactic
       apply IdentityTactic
       simp
     · apply NilTactic
       simp
-  · simp
+  · simp [Param, UnCons]
     pushpre
     apply ConsTactic
     Vpair
     · apply FstTactic
-      apply SndTactic
-      apply SndTactic
       apply IdentityTactic
       simp
-    · apply FstTactic
+    · apply SndTactic
       apply SndTactic
       apply IdentityTactic
       simp

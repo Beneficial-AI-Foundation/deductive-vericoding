@@ -60,7 +60,7 @@ inductive Tpe where
   deriving Repr, BEq, DecidableEq
 
 /-- Denotation of types to Lean types -/
-def Tpe.denote : Tpe → Type
+abbrev Tpe.denote : Tpe → Type
   | .unit => Unit
   | .bool => Bool
   | .nat => Nat
@@ -77,6 +77,9 @@ instance instInhabitedDenote : (t : Tpe) → Inhabited t.denote
   | .pair t u => ⟨(instInhabitedDenote t).default, (instInhabitedDenote u).default⟩
   | .arrow _t u => ⟨fun _ => (instInhabitedDenote u).default⟩
 
+notation s "→L" t => Tpe.arrow s t
+notation s "×L" t => Tpe.pair s t
+
 /-! ## Typed Trms (PHOAS-style) -/
 
 /-- Typed terms using Parametric Higher-Order Abstract Syntax (PHOAS).
@@ -85,6 +88,168 @@ instance instInhabitedDenote : (t : Tpe) → Inhabited t.denote
     - Evaluation: instantiate `rep = Tpe.denote` so variables hold values directly
     - Pretty printing: instantiate `rep = fun _ => String` for variable names
     - No context lookup needed - Lean handles substitution automatically -/
+
+/- A tuple consisting of `n` copies of the same type `t` -/
+abbrev dup (t : Tpe) : Nat → Tpe
+  | 0 => .unit
+  | 1 => t
+  | n + 2 => .pair t (dup t (n+1))
+
+abbrev dup.toList {t : Tpe} : {d : Nat} → (dup t d).denote → List t.denote
+  | 0, _ => []
+  | 1, x => [x]
+  | _ + 2, ⟨x, xs⟩ => x :: dup.toList xs
+
+abbrev dup.map {s t : Tpe} (f : s.denote → t.denote) : {d : Nat} → (dup s d).denote → (dup t d).denote
+  | 0, _ => ()
+  | 1, x => f x
+  | _ + 2, ⟨x, xs⟩ => (f x, dup.map f xs)
+
+/- A dependent version of `dup.map`: the mapped function additionally receives a
+   proof that its argument satisfies `P`, which holds of every entry of the tuple.
+   This is what lets `Recursor.fold` below pass the termination checker -- with the
+   plain `dup.map` the recursive call is generalized over an arbitrary element of
+   `s.denote` and the descent proof is lost. -/
+def dup.pmap {s t : Tpe} {P : s.denote → Prop} (f : (y : s.denote) → P y → t.denote) :
+    {d : Nat} → (x : (dup s d).denote) → (∀ y ∈ dup.toList x, P y) → (dup t d).denote
+  | 0, _, _ => ()
+  | 1, x, h => f x (h x (by simp [dup.toList]))
+  | _ + 2, ⟨x, xs⟩, h =>
+      (f x (h x (by simp [dup.toList])),
+       dup.pmap f xs (fun y hy => h y (by simp [dup.toList]; exact Or.inr hy)))
+
+@[simp]
+theorem dup.pmap_eq_map {s t : Tpe} {P : s.denote → Prop} {d : Nat} (g : s.denote → t.denote)
+    (x : (dup s d).denote) (h : ∀ y ∈ dup.toList x, P y) :
+    dup.pmap (fun y _ => g y) x h = dup.map g x := by
+  induction d with
+  | zero => rfl
+  | succ n ih =>
+    match n, x with
+    | 0, x => rfl
+    | n + 1, ⟨x, xs⟩ => simp [dup.pmap, dup.map, ih]
+
+@[simp]
+theorem dup.map_map {s t u: Tpe} {d : Nat} (f : s.denote → t.denote) (g : t.denote → u.denote) (x : (dup s d).denote) :
+    dup.map g (dup.map f x) = dup.map (g ∘ f) x := by
+  induction d; rfl
+  expose_names
+  induction n; rfl
+  grind only [cases eager Prod]
+
+@[simp]
+theorem dup.map_id {s: Tpe} {d : Nat} (x : (dup s d).denote) :
+    dup.map id x = x := by
+  induction d; rfl
+  expose_names
+  induction n; rfl
+  grind only [= id.eq_1, cases eager Prod]
+
+@[simp]
+theorem dup.map_toList {s t : Tpe} {d : Nat} (f : s.denote → t.denote) (x : (dup s d).denote) :
+    (dup.toList x).map f = dup.toList (dup.map f x) := by
+  induction d; rfl
+  expose_names
+  induction n; rfl
+  simp only [toList, List.map_cons, List.cons.injEq, true_and]
+  exact h x.2
+
+@[simp]
+theorem dup.toList_length {s : Tpe} {d : Nat} (x : (dup s d).denote) :
+    (dup.toList x).length = d := by
+  induction d; rfl
+  expose_names
+  induction n; rfl
+  simpa [toList] using h x.2
+
+/-- `P` holds of every entry of a `dup` tuple. The structural counterpart of
+    `∀ y ∈ dup.toList x, P y` — see `dup.forall_iff`. -/
+@[simp] def dup.Forall {s : Tpe} (P : s.denote → Prop) : {d : Nat} → (dup s d).denote → Prop
+  | 0, _ => True
+  | 1, x => P x
+  | _ + 2, x => P x.1 ∧ dup.Forall P x.2
+
+/-- `Rel` holds pointwise between two `dup` tuples of the same width. -/
+@[simp] def dup.Forall₂ {s t : Tpe} (Rel : s.denote → t.denote → Prop) :
+    {d : Nat} → (dup s d).denote → (dup t d).denote → Prop
+  | 0, _, _ => True
+  | 1, x, y => Rel x y
+  | _ + 2, x, y => Rel x.1 y.1 ∧ dup.Forall₂ Rel x.2 y.2
+
+theorem dup.forall_iff {s : Tpe} {P : s.denote → Prop} :
+    {d : Nat} → (x : (dup s d).denote) → (dup.Forall P x ↔ ∀ y ∈ dup.toList x, P y)
+  | 0, _ => by simp [dup.Forall]
+  | 1, _ => by simp [dup.Forall]
+  | _ + 2, x => by simp [dup.Forall, dup.toList, dup.forall_iff x.2]
+
+/-- Mapping a function over a `dup` tuple relates each entry to its image. This is what lets
+    `ListRecTactic` hand the step case one `Post` per recursive call. -/
+theorem dup.forall₂_map {s t : Tpe} {Rel : s.denote → t.denote → Prop} {f : s.denote → t.denote} :
+    {d : Nat} → (x : (dup s d).denote) → (∀ y ∈ dup.toList x, Rel y (f y)) →
+    dup.Forall₂ Rel x (dup.map f x)
+  | 0, _, _ => trivial
+  | 1, x, hf => hf x (by simp [dup.toList])
+  | _ + 2, x, hf =>
+      ⟨hf x.1 (by simp [dup.toList]),
+       dup.forall₂_map x.2 fun y hy => hf y (by simp [dup.toList]; exact Or.inr hy)⟩
+
+/- A Recursor used for list recursion. Provides oracle access to a splitting function and provides a proof of finite descent. -/
+structure Recursor (s u : Tpe) (d : Nat) where
+  split : s.denote → u.denote × (dup s d).denote
+  unsplit : u.denote × (dup s d).denote → s.denote
+  depth : s.denote → Nat
+  unsplit_split : ∀ x, depth x > 0 → unsplit (split x) = x
+  -- descending : ∀ x, depth x > 0 → dup.foldl (t := .nat) max (dup.map depth (split x).snd) < depth x
+  descending : ∀ x, depth x > 0 → ((dup.toList (split x).snd).map depth).foldl max 0 < depth x
+
+/-- The running `max` fold over a list of naturals dominates its starting value. -/
+private theorem init_le_foldl_max : ∀ (l : List Nat) (init : Nat), init ≤ l.foldl max init
+  | [], _ => Nat.le_refl _
+  | b :: l, init => Nat.le_trans (Nat.le_max_left init b) (init_le_foldl_max l (max init b))
+
+/-- Every element of a list of naturals is bounded by its `max` fold. -/
+private theorem le_foldl_max {a : Nat} {l : List Nat} :
+    ∀ {init : Nat}, a ∈ l → a ≤ l.foldl max init := by
+  induction l with
+  | nil => intro _ h; cases h
+  | cons b l ih =>
+    intro init h
+    rcases List.mem_cons.mp h with rfl | h'
+    · exact Nat.le_trans (Nat.le_max_right init a) (init_le_foldl_max l (max init a))
+    · exact ih h'
+
+/-- Every child produced by `R.split` is strictly smaller than its parent. This is the descent
+    fact in the form both `Recursor.fold`'s termination proof and `ListRecTactic` need it. -/
+theorem Recursor.depth_lt_of_mem {s u : Tpe} {d : Nat} (R : Recursor s u d) {x y : s.denote}
+    (hx : 0 < R.depth x) (hy : y ∈ dup.toList (R.split x).2) : R.depth y < R.depth x :=
+  Nat.lt_of_le_of_lt (le_foldl_max (List.mem_map_of_mem hy)) (R.descending x hx)
+
+/- The list recursion function associated with a Recursor `R`.
+
+   The recursive calls are made through `dup.pmap` rather than `dup.map` so that
+   each call carries the proof that its argument is smaller than `x`; `R.descending`
+   supplies that proof via `le_foldl_max`. See `Recursor.fold_eq` for the unfolding
+   equation stated with the plain `dup.map`. -/
+def Recursor.fold {s t u : Tpe} {d : Nat} (R : Recursor s u d) (base : s.denote → t.denote)
+  (step : u.denote × ((dup s d).denote × (dup t d).denote) → t.denote) (x : s.denote) : t.denote :=
+  if hx : R.depth x = 0 then base x else
+    step ⟨(R.split x).1, (R.split x).2,
+      dup.pmap (P := fun y => R.depth y < R.depth x) (fun y _ => R.fold base step y) (R.split x).2
+        (fun y hy => R.depth_lt_of_mem (Nat.pos_of_ne_zero hx) hy)⟩
+  termination_by (R.depth x)
+  decreasing_by
+  assumption
+
+/- The defining equation of `Recursor.fold`, phrased with the plain `dup.map`
+   (`dup.pmap` is only needed to get the definition past the termination checker). -/
+theorem Recursor.fold_eq {s t u : Tpe} {d : Nat} (R : Recursor s u d) (base : s.denote → t.denote)
+    (step : u.denote × ((dup s d).denote × (dup t d).denote) → t.denote) (x : s.denote) :
+    R.fold base step x =
+      if R.depth x = 0 then base x
+      else step ⟨(R.split x).1, (R.split x).2, dup.map (R.fold base step) (R.split x).2⟩ := by
+  rw [Recursor.fold]
+  split <;> simp
+
 inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | unit : Trm' rep .unit
   | nil : Trm' rep .list
@@ -96,9 +261,8 @@ inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | snd : {t u : Tpe} → Trm' rep (.pair t u) → Trm' rep u
   | lam : {t u : Tpe} → (rep t → Trm' rep u) → Trm' rep (.arrow t u)
   | app : {t u : Tpe} → Trm' rep (.arrow t u) → Trm' rep t → Trm' rep u
-  | listRec {s t : Tpe} : Trm' rep (.arrow t s) →
-    Trm' rep (.arrow (.pair t (.pair s (.pair .nat .list))) s) →
-    Trm' rep (.arrow (.pair t .list) s)
+  | listRec {s u t : Tpe} {d : Nat} (rec : Recursor s u d) : Trm' rep (s →L t) →
+    Trm' rep ((u ×L ((dup s d) ×L (dup t d))) →L t) → Trm' rep (s →L t)
   -- Boolean operations
   | true : Trm' rep .bool
   | false : Trm' rep .bool
@@ -158,7 +322,7 @@ def Trm'.prettyAux : {t : Tpe} → Trm' (fun _ => String) t → Nat → String �
       let (fs, n1) := f.prettyAux n
       let (args, n2) := arg.prettyAux n1
       (s!"{fs}({args})", n2)
-  | _, .listRec base step, n =>
+  | _, .listRec _ base step, n =>
       let (bs, n1) := base.prettyAux n
       let (ss, n2) := step.prettyAux n1
       (s!"listRec({bs}, {ss})", n2)
@@ -205,15 +369,7 @@ def Trm'.eval : {t : Tpe} → Trm' Tpe.denote t → t.denote
   | _, .snd e => e.eval.2
   | _, .lam f => fun v => (f v).eval  -- Lean handles binding
   | _, .app f arg => f.eval arg.eval
-  | _, .listRec base step => by
-      intro p
-      obtain ⟨par, l⟩ := p
-      let baseVal := base.eval par
-      let stepVal := step.eval
-      let rec go : List Nat → _
-        | [] => baseVal
-        | a :: tl => stepVal (par, (go tl, (a, tl)))
-      exact go l
+  | _, .listRec R base step => R.fold base.eval step.eval
   | _, .true => Bool.true
   | _, .false => Bool.false
   | _, .le e1 e2 => Nat.ble e1.eval e2.eval

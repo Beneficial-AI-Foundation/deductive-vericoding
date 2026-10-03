@@ -1,5 +1,6 @@
 import DeductiveVericoding.ListLanguage.Basic
 import Lean
+import Mathlib.Tactic
 
 /- # TACTICS : Here we have a collection of vericoding tactics-/
 
@@ -91,62 +92,60 @@ def SwapTactic {s t u : Tpe} {Pre : s.denote × t.denote → Prop} {Post : s.den
   { code := .lam fun k => .app impl.code (.mkPair (.snd (.var k)) (.fst (.var k))),
     correct inp pre := impl.correct ⟨inp.2, inp.1⟩ pre }
 
+--should be scrapped
+
+def AssocTactic {s t u v : Tpe} {Pre : v.denote × s.denote × t.denote → Prop} {Post : v.denote × s.denote × t.denote → u.denote → Prop}
+  (impl : Impl ((v ×L s) ×L t) u (fun ⟨⟨x, y⟩, z⟩ => Pre ⟨x, y, z⟩) (fun ⟨⟨x, y⟩, z⟩ out => Post ⟨x, y, z⟩ out)) :
+    Impl (v ×L s ×L t) u Pre Post :=
+  { code := .lam fun k => .app impl.code <| .mkPair (.mkPair  (.fst (.var k)) (.fst (.snd (.var k)))) (.snd (.snd (.var k))),
+    correct inp pre := impl.correct ⟨⟨inp.1, inp.2.1⟩, inp.2.2⟩ pre }
+
 /-Recursion Tactics-/
 
-def ListRecTactic {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.denote × List Nat → s.denote → Prop}
-  (h : ∀ p, ∀ x, ∀ xs, Pre ⟨p, (x :: xs)⟩ → Pre ⟨p, xs⟩)
-  (base : Impl t s (fun inp ↦ Pre ⟨inp, []⟩) (fun p out ↦ Post (p, []) out))
-  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (x, xs))) ↦ Post (p, xs) res ∧ Pre (p, x :: xs)) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
-    Impl (.pair t .list) s Pre Post :=
-  { code := .listRec base.code step.code
-    correct inp pre := by
-      obtain ⟨par, l⟩ := inp
-      induction l with
-      | nil => exact base.correct par (by trivial)
-      | cons x xs ih => exact step.correct ⟨_ ,⟨_, ⟨x, xs⟩⟩⟩ ⟨ih <| h par x xs pre, pre⟩
+def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d)
+    {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
+    (h : ∀ x, Pre x → 0 < R.depth x → dup.Forall Pre (R.split x).2)
+    (base : Impl s t (fun inp ↦ R.depth inp = 0 ∧ Pre inp) Post)
+    (step : Impl (u ×L dup s d ×L dup t d) t
+      (fun (p, (inp, res)) ↦ dup.Forall₂ Post inp res ∧ Pre (R.unsplit (p, inp)))
+      (fun (p, inp, _) out ↦ Post (R.unsplit (p, inp)) out)) :
+    Impl s t Pre Post :=
+  { code := .listRec R base.code step.code
+    correct := by
+      intro inp
+      -- `Trm.eval` of a `.listRec` is definitionally the recursor's fold.
+      show Pre inp → Post inp (R.fold base.code.eval step.code.eval inp)
+      induction inp using Recursor.fold.induct R with
+      | case1 x hx =>
+        intro pre
+        rw [R.fold_eq, if_pos hx]
+        exact base.correct x ⟨hx, pre⟩
+      | case2 x hx ih =>
+        intro pre
+        have hpos : 0 < R.depth x := Nat.pos_of_ne_zero hx
+        have hPre := (dup.forall_iff _).mp (h x pre hpos)
+        rw [R.fold_eq, if_neg hx]
+        nth_rw 1 [← R.unsplit_split x hpos]
+        -- Each child is smaller, so the induction hypothesis gives it its `Post`;
+        -- `dup.forall₂_map` lifts that pointwise over the whole tuple of children.
+        refine step.correct ((R.split x).1, (R.split x).2, _)
+          ⟨dup.forall₂_map _ fun y hy => ih y (R.depth_lt_of_mem hpos hy) (hPre y hy),
+           ?_⟩
+        rwa [R.unsplit_split x hpos]
   }
 
---version without the parameter t
-def ListRecTactic' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
-  (h : ∀ x, ∀ xs, Pre (x :: xs) → Pre xs)
-  (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
-  (step : Impl (.pair s (.pair .nat .list)) s (fun (res, (_, xs)) ↦ Post xs res) (fun (_, (x, xs)) out ↦ Post (x :: xs) out)) :
-    Impl .list s Pre Post :=
-  {
-    code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.var l)))) (.mkPair .unit (.var k))
+def ListRecTactic' {s t u : Tpe} {d : Nat} (R : Recursor s u d) {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
+  (base : Impl s t (fun inp ↦ R.depth inp = 0 ∧ Pre inp) Post)
+  (step : Impl (u ×L dup s d) t (fun inp ↦ Pre (R.unsplit inp)) (fun inp out ↦ Post (R.unsplit inp) out)) :
+    Impl s t Pre Post :=
+  { code := .listRec R base.code (.lam fun k => .app step.code <| .mkPair (.fst (.var k)) (.fst (.snd (.var k))))
     correct inp pre := by
-      induction inp with
-      | nil => exact base.correct _ (by trivial)
-      | cons x xs ih => exact step.correct ⟨_, ⟨x, xs⟩⟩ (ih <| h x xs pre)
-  }
-
-/- Version of ListRecTactic that also hands the step case the original precondition, rather than
-just the recursive result's postcondition. Needed whenever the step has to reason about the input
-it was called on -- InsertionSort's step, for instance, needs `Ordered` of the tail. -/
-def ListRecTacticPre {s t : Tpe} {Pre : t.denote × List Nat → Prop} {Post : t.denote × List Nat → s.denote → Prop}
-  (h : ∀ p, ∀ x, ∀ xs, Pre (p, x :: xs) → Pre (p, xs))
-  (base : Impl t s (fun inp ↦ Pre (inp, [])) (fun p out ↦ Post (p, []) out))
-  (step : Impl (.pair t (.pair s (.pair .nat .list))) s (fun (p, (res, (x, xs))) ↦ Pre (p, x :: xs) ∧ Post (p, xs) res) (fun (p, (_, (x, xs))) out ↦ Post (p, (x :: xs)) out)) :
-    Impl (.pair t .list) s Pre Post :=
-  { code := .listRec base.code step.code
-    correct inp pre := by
-      obtain ⟨par, l⟩ := inp
-      induction l with
-      | nil => exact base.correct par pre
-      | cons x xs ih => exact step.correct ⟨par, ⟨_, ⟨x, xs⟩⟩⟩ ⟨pre, (ih (h _ _ _ pre))⟩
-  }
-
---version without actual recursion RENAME to ListCases
-def ListRecTactic'' {s : Tpe} {Pre : List Nat → Prop} {Post : List Nat → s.denote → Prop}
-  (base : Impl .unit s (fun _ => Pre []) (fun _ out ↦ Post [] out))
-  (step : Impl (.pair .nat .list) s (fun (x, xs) => Pre (x :: xs)) (fun (x, xs) out ↦ Post (x :: xs) out)) :
-    Impl .list s Pre Post :=
-  {
-    code := .lam fun k => .app (.listRec base.code (.lam fun l => .app step.code (.snd (.snd (.var l))))) (.mkPair .unit (.var k))
-    correct inp pre := by
-      induction inp with
-      | nil => exact base.correct _ (by trivial)
-      | cons x xs _ => exact step.correct ⟨x, xs⟩ pre
+      simp [Trm.eval, Trm'.eval, Recursor.fold]
+      by_cases h : R.depth inp = 0 <;> simp [h]
+      · exact base.correct inp ⟨h, pre⟩
+      nth_rw 1 [← R.unsplit_split inp (Nat.zero_lt_of_ne_zero h)]
+      apply step.correct
+      rwa [R.unsplit_split inp (Nat.zero_lt_of_ne_zero h)]
   }
 
 /- Finally we need tactics for relaxing the Pre and Post Conditions-/
