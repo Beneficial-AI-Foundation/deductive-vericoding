@@ -105,11 +105,6 @@ abbrev dup.map {s t : Tpe} (f : s.denote → t.denote) : {d : Nat} → (dup s d)
   | 1, x => f x
   | _ + 2, ⟨x, xs⟩ => (f x, dup.map f xs)
 
-abbrev dup.map₂ {s t u : Tpe} (f : s.denote → u.denote → t.denote) : {d : Nat} → (dup s d).denote → (dup u d).denote → (dup t d).denote
-  | 0, _, _ => ()
-  | 1, x, y => f x y
-  | _ + 2, ⟨x, xs⟩, ⟨y, ys⟩ => (f x y, dup.map₂ f xs ys)
-
 /- A dependent version of `dup.map`: the mapped function additionally receives a
    proof that its argument satisfies `P`, which holds of every entry of the tuple.
    This is what lets `Recursor.fold` below pass the termination checker -- with the
@@ -158,15 +153,6 @@ theorem dup.map_toList {s t : Tpe} {d : Nat} (f : s.denote → t.denote) (x : (d
   induction n; rfl
   simp only [toList, List.map_cons, List.cons.injEq, true_and]
   exact h x.2
-
-@[simp]
-theorem dup.map₂_toList {s t u : Tpe} {d : Nat} (f : s.denote → u.denote → t.denote) (x : (dup s d).denote) (y : (dup u d).denote) :
-    ((dup.toList x).zipWith f (dup.toList y))  = dup.toList (dup.map₂ f x y) := by
-  induction d; rfl
-  expose_names
-  induction n; rfl
-  simp [toList, List.zipWith, List.cons.injEq, true_and]
-  exact h x.2 y.2
 
 @[simp]
 theorem dup.toList_length {s : Tpe} {d : Nat} (x : (dup s d).denote) :
