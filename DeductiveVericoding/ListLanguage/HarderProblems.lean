@@ -14,16 +14,19 @@ One limit of the DSL (`Basic.lean`) still shapes what can be asked here: there i
 arithmetic** — `Trm'` has `num`, `le`, `ite`, `cons`, `head`, `tail` and `listRec`, but no `+`,
 so no length, sum or count.
 
-What is no longer a limit is the *result type of a fold*. `Trm'.listRec` now returns an arbitrary
-`Tpe`, and `ListRecTactic`/`ListRecTactic'` were generalised with it, so the same list recursion
-can produce a number, a boolean or a pair. The `## Folds at other types` section is what that
+What is no longer a limit is the *result type of a fold*. `Trm'.listRec` returns an arbitrary
+`Tpe`, so the same list recursion can produce a number, a boolean or a pair. The `## Folds at other types` section is what that
 buys. The `.head`/`.tail` primitives still have no combinator in `Tactics.lean`, which is what
 keeps several of the frontier problems out of reach.
 
 See the frontier section at the bottom for the ones that are still unreachable, and why.
 
-The other flagship relational problem is `InsertionSortProblem` in `InsertionSort.lean`;
-`InsertionSolution'''` derives it from lemmas alone.
+Every problem below is solved. All but two are solved by a single `vericode [lemmas]` call, where
+the lemmas are facts about the *specification* and say nothing about how to build the code;
+`MinMaxSolution` and `MergeSolution` are guided derivations, for the reasons given at each.
+
+The other flagship relational problem is `SortingProblem` in `InsertionSort.lean`, solved there by
+a guided derivation.
 -/
 
 /-! ## Warm-ups over numbers
@@ -38,6 +41,11 @@ abbrev WitnessProblem := Impl (.pair .nat .nat) .nat (fun _ => True) WitnessSpec
 
 theorem witness_left (p : Nat × Nat) (out : Nat) (h : out = p.1) : WitnessSpec p out := Or.inl h
 
+def WitnessSolution : WitnessProblem := by
+  vericode [witness_left]
+
+#eval ListLanguage.Trm.pretty WitnessSolution.code
+
 /-- Compare two numbers, but only *soundly*: the answer is pinned down except when `p.1 = p.2`,
 where both booleans are correct. -/
 def CmpSpec (p : Nat × Nat) (out : Bool) : Prop :=
@@ -51,6 +59,11 @@ theorem cmp_true (p : Nat × Nat) (out : Bool) (h : p.1 ≤ p.2) (h2 : out = tru
 theorem cmp_false (p : Nat × Nat) (out : Bool) (h : ¬ p.1 ≤ p.2) (h2 : out = false) :
     CmpSpec p out := by subst h2; exact ⟨by simp, fun _ => Nat.le_of_not_le h⟩
 
+def CmpSolution : CmpProblem := by
+  vericode [cmp_true, cmp_false]
+
+#eval ListLanguage.Trm.pretty CmpSolution.code
+
 /-- *Any* upper bound of two numbers — infinitely many correct outputs. Without arithmetic the
 only ones reachable are `p.1` and `p.2`, so the derivation is forced to compare them. -/
 def UBSpec (p : Nat × Nat) (out : Nat) : Prop := p.1 ≤ out ∧ p.2 ≤ out
@@ -62,6 +75,11 @@ theorem ub_left (p : Nat × Nat) (out : Nat) (h : p.2 ≤ p.1) (h2 : out = p.1) 
 
 theorem ub_right (p : Nat × Nat) (out : Nat) (h : p.1 ≤ p.2) (h2 : out = p.2) : UBSpec p out := by
   subst h2; exact ⟨h, le_refl _⟩
+
+def UBSolution : UBProblem := by
+  vericode [ub_left, ub_right]
+
+#eval ListLanguage.Trm.pretty UBSolution.code
 
 /-- Sort a pair. A relational specification with a *pair-valued* output. -/
 def OrderSpec (p : Nat × Nat) (out : Nat × Nat) : Prop :=
@@ -75,6 +93,11 @@ theorem order_id (p : Nat × Nat) (out : Nat × Nat) (h : p.1 ≤ p.2) (h2 : out
 theorem order_swap (p : Nat × Nat) (out : Nat × Nat) (h : ¬ p.1 ≤ p.2) (h2 : out = (p.2, p.1)) :
     OrderSpec p out := by subst h2; exact ⟨Nat.le_of_not_le h, Or.inr rfl⟩
 
+def OrderSolution : OrderProblem := by
+  vericode [order_id, order_swap]
+
+#eval ListLanguage.Trm.pretty OrderSolution.code
+
 /-! ## Lists -/
 
 /-- Return *any* permutation of the input — the most ambiguous specification in the file. The
@@ -82,6 +105,11 @@ identity is the cheapest witness, and that is what `vericode` finds. -/
 abbrev PermProblem := Impl .list .list (fun _ => True) (fun l out => l.Perm out)
 
 theorem perm_of_eq (l out : List Nat) (h : out = l) : l.Perm out := h ▸ List.Perm.refl l
+
+def PermSolution : PermProblem := by
+  vericode [perm_of_eq]
+
+#eval ListLanguage.Trm.pretty PermSolution.code
 
 /-- The last element of a list, `0` for the empty list. -/
 def last : List Nat → Nat
@@ -116,6 +144,11 @@ theorem AppendSpec_cons' (a b : Nat) (l1 l2 l3 : List Nat) (h : AppendSpec (a, l
     (h2 : l3 = b :: l2) : AppendSpec (a, b :: l1) l3 :=
   h2 ▸ AppendSpec_cons a b l1 l2 h
 
+def AppendSolution_hard : AppendProblem_hard := by
+  vericode [AppendSpec_cons', AppendSpec_empty]
+
+#eval ListLanguage.Trm.pretty AppendSolution_hard.code
+
 /-- Keep exactly the elements of `l` that are `≤ a`, specified by sublist-ness and membership
 rather than by `List.filter`.
 
@@ -145,12 +178,20 @@ theorem FilterSpec_drop (a b : Nat) (l res out : List Nat) (hres : FilterSpec (a
   subst h
   refine ⟨h1.cons _, ?_, ?_⟩ <;> grind
 
+-- The widest search in the file: the side conditions of the `FilterSpec` lemmas are `Sublist`
+-- facts, and every misplaced attempt to discharge one costs `grind` time.
+set_option maxHeartbeats 800000 in
+def FilterSolution : FilterProblem := by
+  vericode [FilterSpec_nil, FilterSpec_keep, FilterSpec_drop]
+
+#eval ListLanguage.Trm.pretty FilterSolution.code
+
 /-! ## Folds at other types
 
 Everything above folds a list into a list. These fold it into a **number**, a **boolean** and a
 **pair** — the shapes `listRec` could not express while it was pinned to `.list`. Nothing else
-changed: the same `ListRecTactic`/`ListRecTactic'` rules fire, `natCases` still invents the
-comparison, and `relaxPost` still does the specification-level step.
+changes: the same recursion rule `listRecUC` fires, `natCases` still invents the comparison, and
+`relaxPost` still does the specification-level step.
 
 One thing to watch when writing a specification for this section: `relaxPost`'s implication path
 elaborates the lemma with `forallMetaTelescopeReducing`, which unfolds the conclusion while it
@@ -191,15 +232,20 @@ theorem MaxListSpec_new (b : Nat) (l : List Nat) (res out : Nat) (hres : MaxList
   · exact le_refl _
   · exact le_trans (hres.1 x hx) (Nat.le_of_not_le hb)
 
+def MaxListSolution : MaxListProblem := by
+  vericode [MaxListSpec_nil, MaxListSpec_keep, MaxListSpec_new]
+
+#eval ListLanguage.Trm.pretty MaxListSolution.code
+
 /-- The smallest element of a **non-empty** list, the list being given as `a :: l`.
 
 The minimum has no identity element to start a fold from — `0` works for `max` but there is no
 largest `Nat` for `min`, and the DSL cannot test `l` for emptiness (see frontier item 4). Splitting
-the head off into `ListRecTactic`'s *parameter* dodges that: the recursion runs over `l` with `a`
-fixed, so the base case returns `a` rather than a sentinel.
+the head off into the recursion's *parameter* dodges that: `listRecUC` recurses over `l` with the
+`Param UnCons` recursor, carrying `a` along, so the base case returns `a` rather than a sentinel.
 
-That makes this the mirror image of `MaxListProblem`: same fold at `.nat`, but the parameter now
-carries a value the base case needs, rather than being the dummy `.unit` of `ListRecTactic'`. -/
+That makes this the mirror image of `MaxListProblem`: same fold at `.nat`, but the parameter
+carries a value the base case needs. -/
 def MinSpec : Nat × List Nat → Nat → Prop := fun (a, l) out =>
   (out ≤ a ∧ ∀ x ∈ l, out ≤ x) ∧ (out = a ∨ out ∈ l)
 
@@ -223,6 +269,11 @@ theorem MinSpec_keep (a b : Nat) (l : List Nat) (res out : Nat) (hres : MinSpec 
   rcases List.mem_cons.mp hx with rfl | hx
   · exact Nat.le_of_not_le hb
   · exact hres.1.2 x hx
+
+def MinSolution : MinProblem := by
+  vericode [MinSpec_nil, MinSpec_new, MinSpec_keep]
+
+#eval ListLanguage.Trm.pretty MinSolution.code
 
 /-- Are all elements of `l` at most `a`? The first `list → bool` fold.
 
@@ -254,11 +305,16 @@ theorem AllLESpec_drop (a b : Nat) (l : List Nat) (out : Bool)
   subst h
   exact ⟨by simp, fun _ => ⟨b, List.mem_cons_self .., hb⟩⟩
 
+def AllLESolution : AllLEProblem := by
+  vericode [AllLESpec_nil, AllLESpec_keep, AllLESpec_drop]
+
+#eval ListLanguage.Trm.pretty AllLESolution.code
+
 /-- Partition `l` around the pivot `a`. A `list → pair` fold, and the one problem in this file
 that was written up as unreachable *before* `listRec` was generalised.
 
 Two things had to line up. `listRec` must return `.pair .list .list`, which it now can; and the
-relational, `Perm`-coupled postcondition must still reach the `out = (…, …)` shape `PairTactic`
+relational, `Perm`-coupled postcondition must still reach the `out = (…, …)` shape `PairEqTactic`
 needs — which it does, because each `relaxPost` implication below fixes *both* components at once
 (`out = (b :: res.1, res.2)`), so the coupling is discharged in the specification step and never
 has to be split across two independent goals. -/
@@ -286,22 +342,22 @@ theorem PartSpec_drop (a b : Nat) (l : List Nat) (res out : List Nat × List Nat
   refine ⟨?_, h2, by grind⟩
   simpa using (List.perm_middle.trans (h1.cons b))
 
+def PartSolution : PartProblem := by
+  vericode [PartSpec_nil, PartSpec_keep, PartSpec_drop]
+
+#eval ListLanguage.Trm.pretty PartSolution.code
+
 /-! ### Two accumulators in one pass
 
 `MinMaxProblem` computes the minimum *and* the maximum of `a :: l` in a single traversal, by
-folding at `.pair .nat .nat`. Unlike everything above it needs a **guided** derivation, and for a
-sharply localised reason.
+folding at `.pair .nat .nat`. Unlike everything above it needs a **guided** derivation.
 
-`natCases` builds its candidate comparisons from `decodeInputTpe`, which walks the *right-nested
-spine* of the input type and keeps the components that are literally `.nat`. In the step here the
-spine is `a`, `res`, `b`, `tl` with `res : .pair .nat .nat`, so `res` is one component of pair
-type and its two halves are never offered. The only comparison `natCases` can invent is `a` versus
-`b`, which is not a step of the algorithm.
-
-So the two `CasesTactic` conditions are written out below, and every other step — the base case,
-the boolean condition itself, and all three branches — is still left to `vericode`. Making this
-one automatic is frontier item 1: have `natCases` enumerate the `.nat` *leaves* of the input
-rather than the `.nat` components of its spine. -/
+Both comparisons it needs — the head `b` against the running minimum `res.1`, and against the
+running maximum `res.2` — are among the candidates `natCases` offers, since it enumerates every
+`.nat` leaf of the input. What defeats the search is its *width*: the algorithm needs two
+*nested* splits, each with up to four lemmas to try in every branch, and that tree does not fit the
+search budget. So the two `CasesTactic` conditions are written out below; the base case, the
+boolean conditions themselves and all three branches are still left to `vericode`. -/
 
 def MaxPSpec : Nat × List Nat → Nat → Prop := fun (a, l) out =>
   (a ≤ out ∧ ∀ x ∈ l, x ≤ out) ∧ (out = a ∨ out ∈ l)
@@ -365,12 +421,25 @@ theorem MinMaxSpec_newMax (a b : Nat) (l : List Nat) (res out : Nat × Nat)
     · exact le_refl _
     · exact le_trans (hM2 x hx) (Nat.le_of_not_le h2)
 
+def MinMaxSolution : MinMaxProblem := by
+  listRecUC
+  · vericode [MinMaxSpec_nil]
+  -- the step input is `(b, ((a, l), res))`; is the head below the running minimum?
+  refine CasesTactic (fun inp => Nat.ble inp.1 inp.2.2.1) (by vericode) ?_ ?_
+  · vericode [MinMaxSpec_newMin]
+  -- otherwise compare it against the running maximum
+  refine CasesTactic (fun inp => Nat.ble inp.1 inp.2.2.2) (by vericode) ?_ ?_
+  · vericode [MinMaxSpec_keep]
+  vericode [MinMaxSpec_newMax]
+
+#eval ListLanguage.Trm.pretty MinMaxSolution.code
+
 /-! ## Merging two sorted lists
 
-The one problem here that `vericode` cannot start on its own. Two reasons: the `ListRecTactic`
-monotonicity obligation `Ordered (a :: l) → Ordered l` needs a `cases l` that no rule performs,
-and the step needs an *insertion helper*, which the search has no way to invent. So it gets a
-guided derivation in the style of `InsertionSortSolution`, reusing `InsertionSolution` outright. -/
+The one problem here that `vericode` cannot start on its own. Two reasons: the side condition of the
+recursion, `Ordered (b :: l) → Ordered l`, needs a `cases l` that no rule performs, and the step
+needs an *insertion helper*, which the search has no way to invent. So it gets a guided derivation
+in the style of `InsertionSortSolution`, reusing `InsertionSolution` outright. -/
 
 def MergeSpec : List Nat × List Nat → List Nat → Prop := fun (l1, l2) out =>
   Ordered out ∧ (l1 ++ l2).Perm out
@@ -383,6 +452,28 @@ theorem MergeSpec_nil (l1 out : List Nat) (h : Ordered l1) :
   simp only [MergeSpec, List.append_nil]
   exact ⟨fun hs => (SortedOrdered_iff l1 out h).mp hs, fun he => by subst he; exact ⟨h, .refl _⟩⟩
 
+def MergeSolution : MergeProblem := by
+  listRecUC
+  · rintro l1 (_ | ⟨a, l⟩) h1 h2 hpos
+    · simp at hpos
+    · exact ⟨h1, Ordered_tail a l h2⟩
+  · -- `l2 = []`: the merge is `l1`
+    refine RelaxPostTactic _ (fun inp out => out = inp.1) (by vericode) ?_
+    rintro ⟨l1, l2⟩ ⟨rfl, h1, -⟩ out h
+    exact (MergeSpec_nil l1 out h1).mpr h
+  · -- the merged tail `res` is sorted, so merging the head `a` in is exactly an insertion
+    refine RelaxPostTactic (I := .nat ×L (.list ×L .list) ×L .list) _
+      (fun inp out => Sorted (inp.1 :: inp.2.2) out) ?_ ?_
+    · refine SplitTactic (.nat ×L (.list ×L .list) ×L .list) (.nat ×L .list) .list
+        (fun inp => (inp.1, inp.2.2)) (fun p out => Sorted (p.1 :: p.2) out) (by vericode) ?_
+      refine RelaxPreTactic (fun p => Ordered p.2) ?_ InsertionSolution
+      rintro _ ⟨⟨b, ⟨l1, l2⟩, res⟩, ⟨⟨hres, -⟩, -⟩, rfl⟩
+      exact hres
+    · rintro ⟨a, ⟨l1, l2⟩, res⟩ ⟨⟨-, hperm⟩, -, -⟩ out ⟨ho, hp⟩
+      exact ⟨ho, (List.perm_middle.trans (hperm.cons a)).trans hp⟩
+
+#eval ListLanguage.Trm.pretty MergeSolution.code
+
 /-! ## The frontier
 
 What is still out of reach, and why. Generalising `listRec` retired the two entries that used to
@@ -391,13 +482,12 @@ head this list — a `list → nat` fold (now `MaxListProblem`) and a pair-value
 below is a limit of the search or of the primitive set, and each is a benchmark target for one
 specific missing piece.
 
-**1. Comparisons buried inside a pair.** `natCases` gets its candidates from `decodeInputTpe`,
-which walks the right-nested spine of the input type and keeps the components that are literally
-`.nat`. A component of type `.pair .nat .nat` contributes nothing, so no comparison against either
-half is ever offered. That is the whole reason `MinMaxSolution` is guided rather than automatic.
-The fix is local — enumerate the `.nat` *leaves*, pairing each with the projection chain that
-reaches it, instead of the `.nat` components of the spine — and it would also cover accumulators
-like `.pair .bool .nat` needed by item 4.
+**1. Search width.** `natCases` enumerates every `.nat` *leaf* of the input — including the
+halves of a pair-valued recursive result and the parameter of a `Param` recursion — but only offers
+comparisons that involve the first input component (the element being processed); offering all
+pairs of leaves makes even single-split problems too wide to finish. `MinMaxProblem` still does not
+fit: two nested splits with four lemmas per branch. Cheaper side-condition discharge, or a way to
+rank lemmas per branch, is what would bring it in.
 
 **2. Specifications headed by a quantifier.** The obvious "any upper bound of a list":
 ```
@@ -435,7 +525,7 @@ pair — two-line mirrors of `FstTactic` — plus a `boolCases` rule would settl
 **5. Folds that return a function.** The accumulator-passing reverse,
 `rev l = fold (fun acc => acc) (fun res a _ => fun acc => res (a :: acc)) l []`, is a fold at
 `s = .arrow .list .list`. This one is *half* unblocked and worth recording precisely, because the
-remaining gap is small: `ListRecTactic'` accepts the arrow instantiation, and `vericode` already
+remaining gap is small: `ListRecTactic` accepts the arrow instantiation, and `vericode` already
 closes the base case `∀ x, f x = [].reverse ++ x` on its own. The step goal
 `∀ x, out x = tl.reverse ++ a :: x` is where it stops, because closing it means applying `res` —
 a *function-valued component of the input*, known correct only from the precondition — to

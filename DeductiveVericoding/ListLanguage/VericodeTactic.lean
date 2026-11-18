@@ -54,6 +54,28 @@ partial def mkNestedTuple (xs : Array Expr) : MetaM Expr := do
     let rest ← mkNestedTuple (xs.extract 1 xs.size)
     mkAppM ``Prod.mk #[xs[0]!, rest]
 
+/-- Reduce a projection of an explicit pair, `(a, b).fst ↦ a`, at the head of `e` (in both the
+    `Prod.fst` and the structure-projection spelling). -/
+partial def projHead (e : Expr) : Expr :=
+  let compOf (p : Expr) (fst : Bool) : Expr :=
+    if p.isAppOfArity ``Prod.mk 4 then projHead p.getAppArgs[if fst then 2 else 3]! else e
+  if e.isAppOfArity ``Prod.fst 3 then compOf e.appArg! true
+  else if e.isAppOfArity ``Prod.snd 3 then compOf e.appArg! false
+  else match e with
+    | .proj ``Prod 0 inner => compOf inner true
+    | .proj ``Prod 1 inner => compOf inner false
+    | _ => e
+
+/-- Beta-, match- and projection-reduce `e` *everywhere*, without unfolding any definition
+    (`whnfCore` only, plus `projHead`). Applying a pre/postcondition to the tuple
+    `(inp.1, inp.2.1, …)` leaves a swarm of such redexes behind; they are definitionally
+    irrelevant, but they make the side conditions unreadable and are a real obstacle for the
+    `simp_all`/`grind` discharger. -/
+def deepReduce (e : Expr) : MetaM Expr :=
+  Meta.transform e (post := fun e => do
+    let e' ← whnfCore (projHead e)
+    return if e' == e then .done e else .visit e')
+
 /-- `pushpre` closes the "precondition is an equality" shape that a `listRec` step goal takes
     after `simp`:
 ```
@@ -96,7 +118,8 @@ elab "pushpre" : tactic => do
   -- constructor tuple, then re-expressing everything via projections of a packed input.
   let post' ← withLocalDeclsD decls fun cs => do
     let tuple ← mkNestedTuple cs
-    let preBody ← whnf (mkApp Pre tuple)
+    -- `whnf` to expose the `Eq`, then `deepReduce` so that `(c₀, c₁).2` becomes `c₁`
+    let preBody ← deepReduce (← whnf (mkApp Pre tuple))
     unless preBody.isAppOfArity ``Eq 3 do
       throwError "pushpre: precondition does not reduce to an equality `x = s`:{indentExpr preBody}"
     let lhs := preBody.getAppArgs[1]!
@@ -112,7 +135,10 @@ elab "pushpre" : tactic => do
       else if dependsOnInput lhs && !dependsOnInput rhs then (lhs, rhs)
       else (rhs, lhs)
     withLocalDeclD `out (denote O) fun out => do
-      let postBody ← whnf (mkAppN Post #[tuple, out])
+      -- `whnfCore` + `deepReduce`, not `whnf`: reduce the lambda/`match` of `Post` without
+      -- unfolding the user's definitions (`MinSpec (c₀, c₁) out` must stay `MinSpec …`, or the
+      -- lemmas `relaxPost` later matches against it no longer apply)
+      let postBody ← deepReduce (← whnfCore (mkAppN Post #[tuple, out]))
       -- `kabstract` matches up to defeq (keyed on the head symbol). A syntactic `==` test
       -- is not enough: the precondition and the postcondition reach the goal by different
       -- routes and encode projections differently (raw `Expr.proj` vs `Prod.fst` applied),
@@ -197,7 +223,9 @@ Rule phases:
 * **the leaf closers, `numClose`, `Vpair` and `listRecUC` are `unsafe 90%`**: preferred, but
   backtrackable — a leaf closer whose obligation turns out to be false (`inp.1 :: inp.2 = []`)
   must not be committed to.
-* **`ConsTactic`/`LETactic` are `unsafe 70%`**.
+* **`LEEqTactic`/`PairEqTactic` are `unsafe 80%`**: `LETactic`/`PairTactic` specialised to a
+  postcondition `out = Nat.ble a b` / `out = (a, b)`. The general `LETactic` is not a rule at all.
+* **`ConsTactic` is `unsafe 70%`**.
 * **`pushpre` is not a rule of its own**: `listRecUC` applies it once to the goals it creates
   (as a free-standing rule it rewrites `res = f l` back and forth forever).
 * **`relaxPost` is `unsafe 50%` `tactic`, one rule per lemma passed to `vericode [f, g, …]`**
@@ -206,8 +234,8 @@ Rule phases:
   `Eq`/`Iff`, or by applying an implication backwards and keeping what the precondition cannot
   discharge; see the section on it below.
 * **`natCases` is `unsafe 20%`**: the case split. It is the only rule that has to *invent* its
-  argument (the condition), so it offers one alternative per comparison of two `.nat` components
-  of the input and lets the search choose. -/
+  argument (the condition), so it offers one alternative per comparison of two `.nat` leaves of
+  the input — one of them a leaf of the first component — and lets the search choose. -/
 
 /-- If `e` is a chain of product projections of `root`, return the projections outermost-first
     (`true = .1`, `false = .2`); `some []` if `e` is `root` itself; `none` otherwise. -/
@@ -249,8 +277,31 @@ attribute [aesop unsafe 90% apply (transparency := default) (rule_sets := [Veric
 @[aesop safe tactic (rule_sets := [VericodeL])]
 def projCloseRule : TacticM Unit := do evalTactic (← `(tactic| projClose))
 
+-- `LETactic` is not a rule: it applies to every `.bool` goal and the search drowns in the pair
+-- goals it leaves. The one shape it is needed for, `out = Nat.ble a b`, is `LEEqTactic` below.
 attribute [aesop unsafe 70% apply (transparency := default) (rule_sets := [VericodeL])]
-  ConsTactic LETactic
+  ConsTactic
+
+/-- `LETactic` specialised to a comparison the postcondition names, `out = Nat.ble a b`. The
+    general `LETactic` leaves `Nat.ble x y = Nat.ble a b` for its pair subgoal, which is not the
+    conjunction `Vpair` splits; this version leaves `out.1 = a ∧ out.2 = b` instead. -/
+def LEEqTactic {t : Tpe} {Pre : t.denote → Prop} (t1 t2 : t.denote → Nat)
+    (impl : Impl t (.pair .nat .nat) Pre (fun inp out => out.1 = t1 inp ∧ out.2 = t2 inp)) :
+    Impl t .bool Pre (fun inp out => out = Nat.ble (t1 inp) (t2 inp)) :=
+  LETactic <| RelaxPostTactic _ _ impl (by rintro inp - ⟨x, y⟩ ⟨h1, h2⟩; simp_all)
+
+/-- `PairTactic` specialised to a pair the postcondition names, `out = (a, b)`. `Vpair` only
+    splits a conjunction `A[out.1] ∧ B[out.2]`, which an equation between pairs is not. -/
+def PairEqTactic {s t u : Tpe} {Pre : s.denote → Prop} (t1 : s.denote → t.denote)
+    (t2 : s.denote → u.denote)
+    (impl1 : Impl s t Pre (fun inp out => out = t1 inp))
+    (impl2 : Impl s u Pre (fun inp out => out = t2 inp)) :
+    Impl s (.pair t u) Pre (fun inp out => out = (t1 inp, t2 inp)) :=
+  RelaxPostTactic _ _ (PairTactic _ _ impl1 impl2)
+    (by rintro inp - ⟨x, y⟩ ⟨h1, h2⟩; simp_all)
+
+attribute [aesop unsafe 80% apply (transparency := default) (rule_sets := [VericodeL])]
+  LEEqTactic PairEqTactic
 
 /-- `PairTactic` via its front-end `Vpair`, which recovers the two component postconditions
     from a conjunctive pair postcondition (a bare `apply PairTactic` cannot). -/
@@ -410,28 +461,6 @@ partial def preLeaves (fuel : Nat) (proof type : Expr) : MetaM (Array (Expr × E
       (← preLeaves (fuel - 1) (mkApp3 (mkConst ``And.left) a b proof) a) ++
       (← preLeaves (fuel - 1) (mkApp3 (mkConst ``And.right) a b proof) b)
   return #[(proof, type')]
-
-/-- Reduce a projection of an explicit pair, `(a, b).fst ↦ a`, at the head of `e` (in both the
-    `Prod.fst` and the structure-projection spelling). -/
-partial def projHead (e : Expr) : Expr :=
-  let compOf (p : Expr) (fst : Bool) : Expr :=
-    if p.isAppOfArity ``Prod.mk 4 then projHead p.getAppArgs[if fst then 2 else 3]! else e
-  if e.isAppOfArity ``Prod.fst 3 then compOf e.appArg! true
-  else if e.isAppOfArity ``Prod.snd 3 then compOf e.appArg! false
-  else match e with
-    | .proj ``Prod 0 inner => compOf inner true
-    | .proj ``Prod 1 inner => compOf inner false
-    | _ => e
-
-/-- Beta-, match- and projection-reduce `e` *everywhere*, without unfolding any definition
-    (`whnfCore` only, plus `projHead`). Applying a pre/postcondition to the tuple
-    `(inp.1, inp.2.1, …)` leaves a swarm of such redexes behind; they are definitionally
-    irrelevant, but they make the side conditions unreadable and are a real obstacle for the
-    `simp_all`/`grind` discharger. -/
-def deepReduce (e : Expr) : MetaM Expr :=
-  Meta.transform e (post := fun e => do
-    let e' ← whnfCore (projHead e)
-    return if e' == e then .done e else .visit e')
 
 /-- The Lean type denoted by the `Tpe` expression `t`, fully unfolded (`Nat × (Nat × List Nat)`
     rather than `(Tpe.pair …).denote`). Hypotheses and goals stated in the unfolded types are what
@@ -858,6 +887,15 @@ def comparesPair (e x y : Expr) : MetaM Bool :=
   (collectComparisons e).anyM fun (a, b) => withoutModifyingState do
     return (← isDefEq a x) && (← isDefEq b y) || (← isDefEq a y) && (← isDefEq b x)
 
+/-- The `.nat` leaves of a value `e` of type `t.denote`, each as a chain of projections of `e`. -/
+partial def natLeaves (t e : Expr) : MetaM (Array Expr) := do
+  let t ← whnf t
+  if t.isConstOf ``Tpe.nat then return #[e]
+  if t.isAppOfArity ``Tpe.pair 2 then
+    return (← natLeaves t.getAppArgs[0]! (← mkAppM ``Prod.fst #[e])) ++
+      (← natLeaves t.getAppArgs[1]! (← mkAppM ``Prod.snd #[e]))
+  return #[]
+
 open Aesop in
 /-- `natCases`: on a goal `Impl I O Pre Post` whose input has at least two `.nat` components,
     apply `CasesTactic` with `cond := fun inp => Nat.ble πᵢ πⱼ` for each ordered pair of distinct
@@ -883,9 +921,15 @@ def natCases : Aesop.RuleTac := fun input => input.goal.withContext do
       else
         projs := projs.push (← mkAppM ``Prod.fst #[acc])
         acc ← mkAppM ``Prod.snd #[acc]
-    let nats := (Array.range m).filterMap fun i =>
-      if comps[i]!.isConstOf ``Tpe.nat then some projs[i]! else none
-    if nats.size < 2 then throwError "natCases: fewer than two `.nat` components"
+    -- every `.nat` *leaf* of the input, including those inside a pair-typed component (the
+    -- parameter `(a, l)` of a `Param` recursion, or a pair-valued recursive result)
+    let mut nats := #[]
+    for i in [0:m] do
+      nats := nats ++ (← natLeaves comps[i]! projs[i]!)
+    -- the leaves of the *first* component: in a recursion step that is the element being
+    -- processed, and every comparison offered must involve one of them (see below)
+    let headCount := (← natLeaves comps[0]! projs[0]!).size
+    if nats.size < 2 then throwError "natCases: fewer than two `.nat` leaves"
     let tuple ← mkNestedTuple projs
     -- Nothing to decide once the postcondition names the output outright: the constructive
     -- combinators build `out = rhs` directly. Skipping those goals is also what stops the rule
@@ -900,7 +944,12 @@ def natCases : Aesop.RuleTac := fun input => input.goal.withContext do
     let mut cands := #[]
     for i in [0:nats.size] do
       for j in [0:nats.size] do
-        if i != j && !(← comparesPair preTy nats[i]! nats[j]!) then
+        -- Only comparisons that involve the first component. Comparing the element being
+        -- processed against something (the parameter, the recursive result) is what every step
+        -- of a fold does; offering all pairs of leaves instead makes the search too wide to
+        -- finish once the parameter and the recursive result contribute leaves of their own.
+        let involvesHead := i < headCount || j < headCount
+        if i != j && involvesHead && !(← comparesPair preTy nats[i]! nats[j]!) then
           let cond ← mkLambdaFVars #[inp] (← mkAppM ``Nat.ble #[nats[i]!, nats[j]!])
           cands := cands.push (mkAppN (mkConst ``CasesTactic) #[I, O, Pre, Post, cond])
     if cands.isEmpty then throwError "natCases: the precondition already orders every pair"
