@@ -4,8 +4,6 @@ import DeductiveVericoding.ListLanguage.Basic
 
 open ListLanguage
 
-def helper_prod {s t : Type} (x : s) : t → s × t := by exact fun a ↦ (x, a)
-
 def Param {s u t : Tpe} {d : Nat} (hd : d > 0) (R : Recursor s u d) : Recursor (t ×L s) u d := {
   split x := by
     refine ((R.split x.2).1, dup.map ?_ (R.split x.2).2)
@@ -25,6 +23,22 @@ def Param {s u t : Tpe} {d : Nat} (hd : d > 0) (R : Recursor s u d) : Recursor (
   descending x h := by
     simp only [← dup.map_toList, List.map_map]
     exact R.descending _ h
+}
+
+/- The product recurser recurses as follows:
+  % <- %
+       |
+       v
+  %    %
+-/
+def Recursor.Prod {s₁ s₂ u₁ u₂ : Tpe} (R₁ : Recursor s₁ u₁ 1) (R₂ : Recursor s₂ u₂ 1) : Recursor (s₁ ×L s₂) (u₁ ×L u₂) 2 := {
+  split x := ⟨((R₁.split x.1).1, (R₂.split x.2).1), (((R₁.split x.1).2, x.2), (x.1, (R₂.split x.2).2))⟩
+  unsplit y := (R₁.unsplit (y.1.1, y.2.1.1), R₂.unsplit (y.1.2, y.2.2.2))
+  depth x := (R₁.depth x.1) * (R₂.depth x.2)
+  unsplit_split x h := by
+    sorry
+  descending x h := by
+    sorry
 }
 
 def UnCons : Recursor .list .nat 1 := {
