@@ -1,4 +1,5 @@
 import DeductiveVericoding.ListLanguage.Tactics
+import DeductiveVericoding.ListLanguage.Recursors
 import DeductiveVericoding.ListLanguage.VericodeRuleSet
 import Lean
 import Aesop
@@ -169,29 +170,36 @@ elab "pushpre" : tactic => do
 `vericode` is a backtracking tree search over the vericoding combinators, implemented on top
 of aesop's `VericodeL` rule set`.
 
-The value-producing combinators (`ConsTactic`, `ListRecTactic`, `NumTactic`, …) recover their
-higher-order arguments — the `target`s and the `Post` invariant — by ordinary congruence
-during `apply`, so they need no custom front-ends (à la `introP`/`listRecP`): they are plain
-`apply` rules. They run at **`default` transparency** so that a postcondition presented as a
-*match* (from an anonymous-constructor lambda `fun ⟨x, xs⟩ out => …`) reduces via structure-eta
-and the `target` metavariables get solved.
+Most value-producing combinators (`ConsTactic`, `LETactic`, the leaf closers) are plain `apply`
+rules, run at **`default` transparency** so that a postcondition presented as a *match* (from an
+anonymous-constructor lambda `fun ⟨x, xs⟩ out => …`) reduces via structure-eta.
 
-Two things get special handling:
+The leaf closers (`NilTactic`, …) take an obligation `∀ inp, Pre inp → Post inp c` rather than
+fixing `Post`, so they *apply* to every goal of their output type; whether they *fit* is decided
+by proving the obligation, which aesop treats as an ordinary subgoal.
+
+The combinators whose arguments `apply` cannot recover get a front-end instead:
 * **projections.** `FstTactic`/`SndTactic` each leave the *discarded* component's type as a
   metavariable, resolved only by a later `IdentityTactic`; aesop reconstructs the proof across
   that shared metavariable and fills it with `sorry`. So projection goals are closed instead by
   `projClose`, a front-end that builds the *entire* `.fst`/`.snd`/`.var` term at once — a fully
   concrete term with no metavariables for aesop to mishandle.
-* **`pushpre`** is an elaborator, wrapped as a `tactic` rule.
+* **numbers.** `numClose` reads the constant off `out = e` and applies `NumTactic e`; a bare
+  `apply` leaves `n` as a metavariable shared with the obligation, which aesop does not solve.
+* **pairs.** `PairTactic` wants its postcondition as a literal `A[out.1] ∧ B[out.2]`; `Vpair`
+  (`vpairCore`) recovers `A` and `B` from the goal.
+* **recursion.** `ListRecTactic` takes the recursor `R` explicitly; `listRecUC` picks it from the
+  input type (`UnCons` or `Param … UnCons`) and normalises the base/step goals with
+  `simp` + `pushpre`, see the section on it below.
 
 Rule phases:
-* **goal closers are `safe`** (`NilTactic`, `UnitTactic`, `TrueTactic`, `FalseTactic`,
-  `NumTactic`, and `projClose`): each fully closes a goal, so committing is never a mistake.
-* **recursion (`ListRecTactic`, `ListRecTactic'`) is `unsafe 90%`** — preferred, backtrackable.
-* **`ConsTactic` is `unsafe 70%`**.
-* **`pushpre` is `unsafe 95%` `tactic`**: aesop's norm phase runs `simp` first, exposing the
-  `Pre → Post` shape it consumes (mirroring the manual `simp; pushpre` idiom). On non-step
-  goals it just fails and the search moves on.
+* **`projClose` is `safe`**: it only succeeds by closing the goal outright.
+* **the leaf closers, `numClose`, `Vpair` and `listRecUC` are `unsafe 90%`**: preferred, but
+  backtrackable — a leaf closer whose obligation turns out to be false (`inp.1 :: inp.2 = []`)
+  must not be committed to.
+* **`ConsTactic`/`LETactic` are `unsafe 70%`**.
+* **`pushpre` is not a rule of its own**: `listRecUC` applies it once to the goals it creates
+  (as a free-standing rule it rewrites `res = f l` back and forth forever).
 * **`relaxPost` is `unsafe 50%` `tactic`, one rule per lemma passed to `vericode [f, g, …]`**
   (added at the call site, so it is not part of the rule set). It is the only rule that can use a
   *specification* fact rather than build code — either by rewriting the postcondition with an
@@ -235,20 +243,23 @@ elab "projClose" : tactic => do
     proj ← if p then `(term| .fst $proj) else `(term| .snd $proj)
   evalTactic (← `(tactic| exact { code := .lam fun k => $proj, correct := fun _ _ => rfl }))
 
-attribute [aesop safe apply (transparency := default) (rule_sets := [VericodeL])]
-  NilTactic UnitTactic TrueTactic FalseTactic NumTactic
+attribute [aesop unsafe 90% apply (transparency := default) (rule_sets := [VericodeL])]
+  NilTactic UnitTactic TrueTactic FalseTactic
 
 @[aesop safe tactic (rule_sets := [VericodeL])]
 def projCloseRule : TacticM Unit := do evalTactic (← `(tactic| projClose))
 
-attribute [aesop unsafe 90% apply (transparency := default) (rule_sets := [VericodeL])]
-  ListRecTactic
-
 attribute [aesop unsafe 70% apply (transparency := default) (rule_sets := [VericodeL])]
-  ConsTactic PairTactic LETactic
+  ConsTactic LETactic
 
-@[aesop unsafe 95% tactic (rule_sets := [VericodeL])]
-def pushpreRule : TacticM Unit := do evalTactic (← `(tactic| pushpre))
+/-- `PairTactic` via its front-end `Vpair`, which recovers the two component postconditions
+    from a conjunctive pair postcondition (a bare `apply PairTactic` cannot). -/
+@[aesop unsafe 90% tactic (rule_sets := [VericodeL])]
+def vpairRule : TacticM Unit := vpairCore
+
+/- `pushpre` is deliberately *not* a search rule: a step precondition `res = f l` can be pushed in
+either direction, so as a free-standing rule it flips the postcondition back and forth forever
+(`f l ↦ res ↦ f l …`). `listRecUC` applies it exactly once, to the base and step goals it creates. -/
 
 /-! ## Applying a helper function to a sub-list
 
@@ -909,6 +920,164 @@ def natCases : Aesop.RuleTac := fun input => input.goal.withContext do
   return { applications := rapps }
 
 attribute [aesop unsafe 20% (rule_sets := [VericodeL]) tactic] natCases
+
+/-! ## Numeric constants -/
+
+/-- Front-end for `NumTactic`: on a goal `Impl s .nat Pre (fun inp out => out = e)` where `e` does
+    not depend on the input, apply `NumTactic e`, leaving its obligation. A bare `apply NumTactic`
+    leaves the constant `n` as a metavariable shared with the obligation `Pre inp → ?n = e`, which
+    aesop does not solve once the precondition is anything but `True`. -/
+elab "numClose" : tactic => do
+  let goal ← getMainGoal
+  let tgt ← instantiateMVars (← whnf (← goal.getType))
+  unless tgt.isAppOf ``Impl do throwError "numClose: not an `Impl` goal"
+  let #[I, O, Pre, Post] := tgt.getAppArgs | throwError "numClose: malformed `Impl` goal"
+  unless (← whnf O).isConstOf ``Tpe.nat do throwError "numClose: output type is not `.nat`"
+  let n ← withLocalDeclD `inp (← denoteTy I) fun inp =>
+    withLocalDeclD `out (mkConst ``Nat) fun out => do
+      let body ← deepReduce (← whnfCore (mkApp2 Post inp out))
+      unless body.isAppOfArity ``Eq 3 && body.getAppArgs[1]! == out do
+        throwError "numClose: postcondition is not `out = …`"
+      let e := body.getAppArgs[2]!
+      if e.containsFVar inp.fvarId! || e.containsFVar out.fvarId! then
+        throwError "numClose: the right-hand side depends on the input"
+      pure e
+  liftMetaTactic fun g => g.apply (mkAppN (mkConst ``NumTactic) #[I, Pre, Post, n])
+
+@[aesop unsafe 90% tactic (rule_sets := [VericodeL])]
+def numCloseRule : TacticM Unit := do evalTactic (← `(tactic| numClose))
+
+/-! ## List recursion
+
+`ListRecTactic` takes the recursor `R` as an explicit argument, which no unification can recover,
+so a bare `apply ListRecTactic` leaves `R` as a metavariable and the search loops. `listRecUC`
+instead *chooses* `R` from the input type, restricted for now to the two recursors that peel the
+head off the last component of the input:
+
+* input `.list`         ↦ `UnCons`
+* input `t ×L .list`    ↦ `Param (t := t) Nat.one_pos UnCons`
+
+and then normalises the three resulting goals the way the hand-written `XXXSolution'` proofs do
+(`simp [UnCons, Param, dup, …]`, then `pushpre`). -/
+
+/-- The recursor `listRecUC` uses on input type `I`, together with a function that picks the
+    recursion component out of an input value; `none` if `I` is not `.list` or `_ ×L .list`. -/
+def ucRecursor? (I : Expr) : MetaM (Option (Expr × (Expr → MetaM Expr))) := do
+  let I ← whnf I
+  if I.isConstOf ``Tpe.list then
+    return some (mkConst ``UnCons, pure)
+  if I.isAppOfArity ``Tpe.pair 2 then
+    let t := I.getAppArgs[0]!
+    if (← whnf I.getAppArgs[1]!).isConstOf ``Tpe.list then
+      let R := mkAppN (mkConst ``Param)
+        #[mkConst ``Tpe.list, mkConst ``Tpe.nat, t, mkNatLit 1, mkConst ``Nat.one_pos, mkConst ``UnCons]
+      return some (R, fun inp => mkAppM ``Prod.snd #[inp])
+  return none
+
+/-- Every equation `a = b` in `e` whose sides mention no loose bound variable. -/
+partial def collectEqs (e : Expr) : Array (Expr × Expr) :=
+  let here : Option (Expr × Expr) :=
+    if e.isAppOfArity ``Eq 3 then
+      let a := e.getAppArgs[1]!
+      let b := e.getAppArgs[2]!
+      if a.hasLooseBVars || b.hasLooseBVars then none else some (a, b)
+    else none
+  let children : Array Expr := match e with
+    | .app f a         => #[f, a]
+    | .lam _ d b _     => #[d, b]
+    | .forallE _ d b _ => #[d, b]
+    | .letE _ t v b _  => #[t, v, b]
+    | .mdata _ b       => #[b]
+    | .proj _ _ b      => #[b]
+    | _                => #[]
+  let acc := children.foldl (init := #[]) fun acc c => acc ++ collectEqs c
+  match here with
+  | some p => acc.push p
+  | none   => acc
+
+/-- Does the precondition `Pre` already force the recursion component to be empty — i.e. is this
+    the base case of an earlier `listRecUC`? Recursing again there would loop forever, since the
+    base goal has the same input type as the original one. -/
+def preForcesNil (I Pre : Expr) (component : Expr → MetaM Expr) : MetaM Bool :=
+  withoutModifyingState do
+  withLocalDeclD `inp (← denoteTy I) fun inp => do
+    let comps := decodeInputTpe I
+    let m := comps.size
+    -- the tuple trick of `natCases`: present the input in constructor form so that a `match`
+    -- in `Pre` reduces
+    let mut projs := #[]
+    let mut acc := inp
+    for i in [0:m] do
+      if i + 1 == m then projs := projs.push acc
+      else
+        projs := projs.push (← mkAppM ``Prod.fst #[acc])
+        acc ← mkAppM ``Prod.snd #[acc]
+    let preTy ← deepReduce (← whnfCore (mkApp Pre (← mkNestedTuple projs)))
+    let c ← component inp
+    let nil ← mkAppOptM ``List.nil #[mkConst ``Nat]
+    let depth := mkApp (mkAppN (mkConst ``Recursor.depth)
+      #[mkConst ``Tpe.list, mkConst ``Tpe.nat, mkNatLit 1, mkConst ``UnCons]) c
+    let zero := mkNatLit 0
+    (collectEqs preTy).anyM fun (a, b) => do
+      let isC (x : Expr) := isDefEq x c
+      let isNil (x : Expr) := isDefEq x nil
+      return (← isC a <&&> isNil b) || (← isNil a <&&> isC b) ||
+        (← isDefEq a depth <&&> isDefEq b zero) || (← isDefEq a zero <&&> isDefEq b depth)
+
+/-- Does the postcondition mention the recursion component (the *last* component of the input)?
+    If not — `out = [1]`, `out = inp.1` — recursing on it is pointless, and since every goal with a
+    list in its input would otherwise qualify, the search drowns in useless recursions. The input
+    is presented as a tuple of fresh variables, so this is a plain occurs check. -/
+def postMentionsLast (I O Post : Expr) : MetaM Bool := do
+  let comps := decodeInputTpe I
+  let decls ← comps.mapM fun t => do
+    let ty ← denoteTy t
+    pure (`c, fun (_ : Array Expr) => pure ty)
+  withLocalDeclsD decls fun cs => do
+    let tuple ← mkNestedTuple cs
+    withLocalDeclD `out (← denoteTy O) fun out => do
+      let body ← deepReduce (← whnfCore (mkApp2 (← instantiateMVars Post) tuple out))
+      return body.containsFVar cs.back!.fvarId!
+
+/-- Apply `ListRecTactic` with a recursor chosen from the input type (`UnCons` or
+    `Param … UnCons`, see above), then normalise the side goal and the base/step goals with
+    `simp [UnCons, Param, dup, …]` and, where it applies, `pushpre`. -/
+elab "listRecUC" : tactic => withMainContext do
+  let goal ← getMainGoal
+  let tgt ← instantiateMVars (← whnf (← goal.getType))
+  unless tgt.isAppOf ``Impl do throwError "listRecUC: goal is not `Impl`:{indentExpr tgt}"
+  let #[I, O, Pre, Post] := tgt.getAppArgs
+    | throwError "listRecUC: malformed `Impl` goal:{indentExpr tgt}"
+  let some (R, component) ← ucRecursor? I
+    | throwError "listRecUC: the input type is neither `.list` nor `_ ×L .list`:{indentExpr I}"
+  unless ← postMentionsLast I O Post do
+    throwError "listRecUC: the postcondition does not mention the list to recurse on"
+  if ← preForcesNil I Pre component then
+    throwError "listRecUC: the precondition already forces the recursion list to be empty"
+  -- both recursors split off a `.nat` head and recurse once (`u = .nat`, `d = 1`)
+  let gs ← goal.apply
+    (mkAppN (mkConst ``ListRecTactic) #[I, O, mkConst ``Tpe.nat, mkNatLit 1, R])
+  let mut out := #[]
+  for g in gs do
+    let s ← saveState
+    setGoals [g]
+    try
+      evalTactic (← `(tactic|
+        simp [Tpe.denote, dup, dup.map, UnCons, Param, UnCons.depth_eq_zero_iff]))
+    catch _ => s.restore; setGoals [g]
+    for g' in ← getGoals do
+      if ← g'.withContext do return (← whnf (← g'.getType)).isAppOf ``Impl then
+        let s ← saveState
+        setGoals [g']
+        try evalTactic (← `(tactic| pushpre))
+        catch _ => s.restore; setGoals [g']
+        out := out ++ (← getGoals).toArray
+      else
+        out := out.push g'
+  replaceMainGoal out.toList
+
+@[aesop unsafe 90% tactic (rule_sets := [VericodeL])]
+def listRecRule : TacticM Unit := do evalTactic (← `(tactic| listRecUC))
 
 /-- Search for a vericoding derivation by backtracking over the `VericodeL` rule set.
 
