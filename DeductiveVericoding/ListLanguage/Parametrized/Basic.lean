@@ -15,9 +15,11 @@ extends the context and `.par i` is the (well-typed) de Bruijn access. No PHOAS 
 environment → output). `IntroP` introduces a parameter, substituting the bound value
 into the condition.
 
-Everything lives here, importing only `Basic`. `toImpl` translates a solved
-`ImplP [] (inTpe ⟶ outTpe) …` back into a genuine `ListLanguage.Impl`, so a Problem
-can be *stated* in `ListLanguage` and *solved* in this language. -/
+This file holds the language itself, importing only `ListLanguage.Basic`. The translation
+back into the list language lives in `Translation.lean`: `toImpl` turns a solved
+`ImplP [] (inTpe ⟶ outTpe) …` into a genuine `ListLanguage.Impl` (correct by `toList'_eval`), so a
+Problem can be *stated* in `ListLanguage` and *solved* in this language. `.listRec` translates to
+the list language's `listRec` with the `UnCons` recursor. -/
 
 /-- A typing context: the parameter types in scope. -/
 abbrev Ctx := List Tpe

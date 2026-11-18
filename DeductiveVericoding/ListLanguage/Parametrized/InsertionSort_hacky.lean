@@ -3,7 +3,7 @@ import DeductiveVericoding.ListLanguage.Parametrized.Translation
 
 open ListLanguage
 
-namespace Parametrized.HackyInsetionSort
+namespace Parametrized.HackyInsertionSort
 
 def insertVal (a : Nat) : List Nat → List Nat
   | [] => [a]
@@ -21,5 +21,4 @@ abbrev InsertionSortProblem := ImplP [] (.arrow .list .list) (fun _ f => ∀ l, 
 def InsertionSortSolution : InsertionSortProblem := by
   vericodeP [insertVal, sorted]
 
--- Disabled: `toClosed` depends on the stubbed `sorry` in `toList'` (listRec case).
--- #eval Trm.pretty (toClosed InsertionSortSolution.code)
+#eval Trm.pretty (toClosed InsertionSortSolution.code)

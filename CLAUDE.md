@@ -4,66 +4,50 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Lean 4 mathematics library focused on "tactics-driven vericoding" - using proof-assistants and tactics to construct verified computational modules. The project explores formal verification of arithmetic algorithms using mixed radix numbers (MRNs) and Fiat-style computational refinement.
+A Lean 4 library for **deductive vericoding**: deriving verified programs by refining a
+specification step by step with *combinators* (each one a small, proved refinement rule), either by
+hand or by an automated search (`vericode`). The main development is a small typed list language
+in `DeductiveVericoding/ListLanguage/`.
 
 ## Build System & Commands
 
-This project uses Lake (Lean's build system):
+- **Build everything**: `lake build` (the `lakefile.toml` globs list every module explicitly,
+  so this compiles all of `CategoryTheory/`, `Function/` and `ListLanguage/`).
+- **Build one module**: `lake build DeductiveVericoding.ListLanguage.Solutions`
+- **Check a scratch file against the project**: `lake env lean path/to/File.lean`
 
-- **Build the project**: `lake build`
-- **Build a specific target**: `lake build DeductiveVericoding`
-- **Run Lean server**: `lean --server` (for IDE integration)
-- **Check a specific file**: `lean DeductiveVericoding/Demo.lean`
+Toolchain: Lean `v4.24.0` (`lean-toolchain`). Dependencies (`lakefile.toml`): Mathlib `v4.24.0`
+and Loom (`verse-lab/loom`, used by `Function/FunctionLoom.lean`).
 
-The project requires Lean 4 version `v4.21.0` (specified in `lean-toolchain`).
+## Layout
 
-## Dependencies
+- `CategoryTheory/` — `DoubleCat.lean` (pseudo-double categories), `DoubleCodable.lean`
+  (specifications and refinements as a double category instance).
+- `Function/` — `Function.lean`, `FunctionLoom.lean`: an earlier string/nat language with
+  `Codable` combinators and a simple `vericode` macro; `doc/011-function.md`.
+- `ListLanguage/` — the main development:
+  - `Basic.lean`: types `Tpe`, PHOAS terms `Trm'`, `Recursor` + `Recursor.fold`, and
+    `Impl I O Pre Post` (code together with its correctness proof).
+  - `Recursors.lean`: `UnCons`, `Param`, `Halve`.
+  - `Tactics.lean`: the combinators (`NilTactic`, `ConsTactic`, `PairTactic`/`Vpair`,
+    `ListRecTactic`, `CasesTactic`, `RelaxPreTactic`, `RelaxPostTactic`, `UseTactic`, …).
+  - `VericodeTactic.lean`: the `vericode` search (aesop rule set `VericodeL`), its front-ends
+    (`projClose`, `numClose`, `listRecUC`, `appList`, `introTac`, `natCases`, `pushpre`) and
+    `relaxPost`.
+  - `Problems.lean` / `Solutions.lean`: specifications and their solutions.
+  - `InsertionSort.lean`: sorting specs and a guided insertion-sort derivation.
+  - `HarderProblems.lean`: relational specifications solved by `vericode [lemmas]`, plus the
+    documented frontier of what is out of reach.
+  - `Parametrized/`: a de Bruijn variant (`ImplP`, `vericodeP`) with a verified translation back
+    into the list language (`Translation.lean`: `toList'`, `toImpl`, `toList'_eval`).
+- `doc/` — design notes; `doc/014-list-language.md` describes the list-language work.
 
-- **Mathlib**: Core mathematics library for Lean 4 (`v4.21.0`)
-- **Canonical**: Additional utility library (`v4.21.0`)
+## Conventions
 
-Dependencies are managed through Lake and specified in `lakefile.toml`.
-
-## Architecture
-
-### Core Modules
-
-1. **DeductiveVericoding/Basic.lean**: Foundational theorems and induction proofs
-   - Contains `sum_spec` proof using mathematical induction
-   - Demonstrates basic proof techniques and recursion patterns
-
-2. **DeductiveVericoding/Core.lean**: Fiat computational framework
-   - Implements monadic computational model using `Set A` for nondeterminism
-   - Defines `Return`, `Bind`, `Pick` operations for specification refinement
-   - Contains refinement relations and proof tactics for program derivation
-
-3. **DeductiveVericoding/Demo.lean**: Associational arithmetic implementation
-   - Mixed radix number representation as `List (Int × Int)`
-   - Polynomial evaluation via `eval` function
-   - Arithmetic operations (`mul`, `split`, `reduce`) with correctness proofs
-   - Demonstrates tactics-driven program synthesis for modular arithmetic
-
-4. **DeductiveVericoding/Ensembles.lean**: Set theory foundations
-   - Naive set theory implementation using predicates (`U → Prop`)
-   - Basic set operations (union, intersection, complement)
-   - Extensionality axiom and set equality definitions
-
-### Key Concepts
-
-- **Mixed Radix Numbers (MRNs)**: Represented as `List (Int × Int)` where each pair `(coeff, base)` contributes `coeff * base` to the total value
-- **Refinement**: Using lemmas like `eval_mul` and `eval_app` to transform high-level specifications into executable implementations
-- **Tactics-driven synthesis**: Using `rw`, `grind`, and other tactics to automatically derive arithmetic circuits
-
-## Development Patterns
-
-- Proofs use structured tactics (`induction`, `cases`, `simp`, `ring`)
-- Computational definitions are accompanied by correctness lemmas (e.g., `eval_mul`, `eval_app`)
-- Some proofs contain `sorry` placeholders indicating incomplete verification
-- Heavy use of Mathlib tactics for algebraic manipulation
-
-## File Structure
-
-- Root module: `DeductiveVericoding.lean` (imports `DeductiveVericoding.Basic`)
-- Source files: `DeductiveVericoding/` directory
-- Documentation: `doc/` directory with explanatory markdown files
-- Build configuration: `lakefile.toml`, `lean-toolchain`
+- In `Solutions.lean`: `XXXSolution` is a hand-written term + proof, `XXXSolution'` is derived by
+  applying combinators by hand, `XXXSolution''` is found by `vericode`.
+- `vericode [l₁, …]` takes facts about the *specification*; it uses them via `relaxPost`
+  (rewrite or implication) and as simp lemmas.
+- A solution produced by search must be checked with `#print axioms`: aesop can fill unsolved
+  metavariables with `sorry`, which shows up as `sorryAx`.
+- The project is currently `sorry`-free; keep it that way, or mark any new `sorry` clearly.
