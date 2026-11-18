@@ -100,6 +100,12 @@ def AssocTactic {s t u v : Tpe} {Pre : v.denote × s.denote × t.denote → Prop
   { code := .lam fun k => .app impl.code <| .mkPair (.mkPair  (.fst (.var k)) (.fst (.snd (.var k)))) (.snd (.snd (.var k))),
     correct inp pre := impl.correct ⟨⟨inp.1, inp.2.1⟩, inp.2.2⟩ pre }
 
+/- a tactic for eliminating Unit tpe from the input-/
+def ElimUnitTactic {t s: Tpe} {Pre : Unit × t.denote → Prop} {Post : Unit × t.denote → s.denote → Prop}
+  (impl : Impl t s (fun inp => Pre ((), inp)) (fun inp out => Post ((), inp) out)) :
+    Impl (.pair .unit t) s Pre Post :=
+  { code := .lam fun k => .app impl.code (.snd (.var k)), correct inp pre := impl.correct inp.2 pre }
+
 /-Recursion Tactics-/
 
 def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d)
