@@ -87,7 +87,7 @@ lemma SortedOrdered_iff (l1 l2 : List Nat) (h : Ordered l1) : Sorted l1 l2 ↔ l
 
 /- # InsertionSort Vericoding -/
 
-abbrev InsertionSortProblem := Impl .list .list (fun _ => True) (fun inp out => Sorted inp out)
+abbrev SortingProblem := Impl .list .list (fun _ => True) (fun inp out => Sorted inp out)
 
 abbrev InsertProblem := Impl (.pair .nat .list) .list (fun inp => Ordered inp.2) (fun ⟨a, l⟩ out => Sorted (a :: l) out)
 
@@ -172,7 +172,7 @@ def InsertionSolution : InsertProblem := by
     apply List.Perm.trans (List.Perm.swap _ _ _)
     exact List.Perm.cons _ hbl.2
 
-def InsertionSortSolution : InsertionSortProblem := by
+def InsertionSortSolution : SortingProblem := by
   apply ListRecTactic UnCons
   · simp
   · refine UseTactic (fun inp => []) ?_ ?_
