@@ -1,31 +1,32 @@
 import DeductiveVericoding.ListLanguage.Parametrized.Basic
+import DeductiveVericoding.ListLanguage.Recursors
 
 open ListLanguage
 
 namespace Parametrized
 
-/-! ## Translation to `ListLanguage` (de Bruijn → PHOAS) -/
+/-! ## Translation to `ListLanguage` (de Bruijn → PHOAS)
 
-/-- Translate a parameter access to the old PHOAS language under a `rep`-environment:
-    an in-scope parameter becomes `.var` of its bound value; an out-of-scope one is `.unit`. -/
+The translation environment holds PHOAS **terms**, not variables: a parameter can be bound to
+something that is not a single PHOAS variable. That is what `.listRec` needs — the old language's
+step function takes the tuple `(a, l, res)` as *one* argument `p`, so the three parameters the
+de Bruijn step sees become `.fst p`, `.fst (.snd p)` and `.snd (.snd p)`. -/
 
-instance instInhabitedTrm' {rep : Tpe → Type} : (t : Tpe) → Inhabited (Trm' rep t)
-  | .unit => ⟨.unit⟩
-  | .bool => ⟨.false⟩
-  | .nat => ⟨.num 0⟩
-  | .list => ⟨.nil⟩
-  | .pair t u => ⟨.mkPair (instInhabitedTrm' t).default (instInhabitedTrm' u).default⟩
-  | .arrow _ u => ⟨.lam fun _ => (instInhabitedTrm' u).default⟩
-
-def parTrans {rep : Tpe → Type} : {Γ : Ctx} → Env rep Γ → (i : Nat) → (t : Tpe) →
+/-- Translate a parameter access under a term environment: an in-scope parameter becomes the term
+    it is bound to; an out-of-scope (or ill-typed) one becomes `default`. -/
+def parTrans {rep : Tpe → Type} : {Γ : Ctx} → Env (Trm' rep) Γ → (i : Nat) → (t : Tpe) →
     ListLanguage.Trm' rep t
   | [], _, _, _ => default
-  | s :: _, (x, _), 0, t => if h : s = t then h ▸ .var x else default
+  | s :: _, (x, _), 0, t => if h : s = t then h ▸ x else default
   | _ :: _, (_, ρ), i + 1, t => parTrans ρ i t
 
 /-- Translate a de Bruijn term to a PHOAS term of the old language: each `.lam` becomes a
-    PHOAS `.lam` binding a fresh variable, pushed onto the translation environment `ρ`. -/
-def toList' {rep : Tpe → Type} : {Γ : Ctx} → {t : Tpe} → Trm Γ t → Env rep Γ →
+    PHOAS `.lam` binding a fresh variable, pushed onto the translation environment `ρ`.
+
+    The parametrized `.listRec` (head/tail recursion on a list) becomes the old `.listRec` with
+    the `UnCons` recursor: the base case ignores its (empty) input, and the step case receives
+    `(a, l, res)` as one tuple, whose components are bound to the step's three parameters. -/
+def toList' {rep : Tpe → Type} : {Γ : Ctx} → {t : Tpe} → Trm Γ t → Env (Trm' rep) Γ →
     ListLanguage.Trm' rep t
   | _, _, .unit, _ => .unit
   | _, _, .nil, _ => .nil
@@ -35,11 +36,12 @@ def toList' {rep : Tpe → Type} : {Γ : Ctx} → {t : Tpe} → Trm Γ t → Env
   | _, _, .mkPair a b, ρ => .mkPair (toList' a ρ) (toList' b ρ)
   | _, _, .fst e, ρ => .fst (toList' e ρ)
   | _, _, .snd e, ρ => .snd (toList' e ρ)
-  | _, _, .lam body, ρ => .lam (fun x => toList' body (x, ρ))
+  | _, _, .lam body, ρ => .lam (fun x => toList' body (.var x, ρ))
   | _, _, .app f a, ρ => .app (toList' f ρ) (toList' a ρ)
-  -- TODO: the new nested-pair `listRec` needs a redesigned translation (see git history /
-  -- the `t`-parameter threading). Stubbed until we work out the proper strategy.
-  | _, _, .listRec _base _step, _ρ => sorry
+  | _, _, .listRec base step, ρ =>
+      .listRec UnCons (.lam fun _ => toList' base ρ)
+        (.lam fun p => toList' step
+          (.fst (.var p), (.fst (.snd (.var p)), (.snd (.snd (.var p)), ρ))))
   | _, _, .true, _ => .true
   | _, _, .false, _ => .false
   | _, _, .le e1 e2, env => .le (toList' e1 env) (toList' e2 env)
@@ -61,25 +63,41 @@ theorem default_eval {t : Tpe} : (default : Trm' Tpe.denote t).eval = default :=
 theorem default_unit {t : Tpe} (h : t = Tpe.unit) : h ▸ (default : Tpe.unit.denote) = (default : t.denote) := by
   cases t <;> grind
 
+/-- Evaluate every term of a translation environment. -/
+def Env.evalTrm : {Γ : Ctx} → Env (Trm' Tpe.denote) Γ → Env Tpe.denote Γ
+  | [], _ => ()
+  | _ :: _, (x, ρ) => (x.eval, Env.evalTrm ρ)
+
 /-- The translation preserves the parameter-lookup value. -/
-theorem parTrans_eval : {Γ : Ctx} → (ρ : Env Tpe.denote Γ) → (i : Nat) → (t : Tpe) →
-    (parTrans ρ i t).eval = Env.getT ρ i t
+theorem parTrans_eval : {Γ : Ctx} → (ρ : Env (Trm' Tpe.denote) Γ) → (i : Nat) → (t : Tpe) →
+    (parTrans ρ i t).eval = Env.getT ρ.evalTrm i t
   | [], env, i, t => by
     simp [parTrans, Env.getT, default_eval, Env.get]
     intro h
     rw [← default_unit h.symm]
   | s :: _, (x, _), 0, t => by
     by_cases h : s = t
-    · simp [parTrans, Env.getT, dif_pos h, Env.get]
-      have : h ▸ Trm'.var x = Trm'.var  (h ▸ x) := by grind only
-      rw [this, Trm'.eval]
+    · subst h
+      simp [parTrans, Env.getT, Env.get, Env.evalTrm]
     simp [Env.getT, h, parTrans, default_eval]
   | _ :: _, (_, ρ), i + 1, t => parTrans_eval ρ i t
 
+/-- Folding with the `UnCons` recursor is the head/tail recursion `listFold` of the parametrized
+    language. -/
+theorem UnCons_fold_eq_listFold (b : List Nat → List Nat)
+    (s : Nat × (List Nat × List Nat) → List Nat) :
+    ∀ xs, UnCons.fold (t := .list) b s xs = listFold (b []) (fun a l r => s (a, l, r)) xs
+  | [] => by rw [Recursor.fold_eq]; simp [UnCons, listFold]
+  | a :: l => by
+    rw [Recursor.fold_eq, if_neg (by simp [UnCons])]
+    show s (a, l, UnCons.fold (t := .list) b s l) = _
+    rw [UnCons_fold_eq_listFold b s l]
+    rfl
+
 /-- **Semantic agreement**: the translated old-language term evaluates identically to the
     de Bruijn term. This is what lets correctness transfer across the translation. -/
-theorem toList'_eval : ∀ {Γ : Ctx} {t : Tpe} (e : Trm Γ t) (ρ : Env Tpe.denote Γ),
-    (toList' e ρ).eval = e.eval ρ := by
+theorem toList'_eval : ∀ {Γ : Ctx} {t : Tpe} (e : Trm Γ t) (ρ : Env (Trm' Tpe.denote) Γ),
+    (toList' e ρ).eval = e.eval ρ.evalTrm := by
   intro Γ t e
   induction e with
   | unit => intro ρ; rfl
@@ -90,10 +108,13 @@ theorem toList'_eval : ∀ {Γ : Ctx} {t : Tpe} (e : Trm Γ t) (ρ : Env Tpe.den
   | mkPair a b ih_a ih_b => intro ρ; simp only [toList', Trm.eval, Trm'.eval, ih_a, ih_b]
   | fst e ih => intro ρ; simp only [toList', Trm.eval, Trm'.eval, ih]
   | snd e ih => intro ρ; simp only [toList', Trm.eval, Trm'.eval, ih]
-  | lam body ih => intro ρ; funext v; simp only [toList', Trm.eval, Trm'.eval]; exact ih (v, ρ)
+  | lam body ih => intro ρ; funext v; simp only [toList', Trm.eval, Trm'.eval]; exact ih (.var v, ρ)
   | app f a ih_f ih_a => intro ρ; simp only [toList', Trm.eval, Trm'.eval, ih_f, ih_a]
-  -- TODO: depends on the redesigned `toList'` listRec translation (currently stubbed above).
-  | listRec base step ih_base ih_step => intro ρ; sorry
+  | listRec base step ih_base ih_step =>
+    intro ρ
+    funext xs
+    simp only [toList', Trm.eval, Trm'.eval, UnCons_fold_eq_listFold]
+    simp only [ih_base, ih_step, Env.evalTrm, Trm'.eval]
   | false => intro env; rfl
   | true => intro env; rfl
   | le e1 e2 ih1 ih2 => intro env; simp only [toList', Trm.eval, Trm'.eval, ih1, ih2]
