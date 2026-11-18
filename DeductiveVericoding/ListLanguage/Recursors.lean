@@ -1,6 +1,12 @@
 import DeductiveVericoding.ListLanguage.Basic
 
-/- Here we provide a list of splits -/
+/- # Recursors
+
+1. `Uncons` : This recursor splits a list into its head and tail
+2. `Param` : This takes a recursor and appends a parameter
+3. `Halve` : This recursor splits a list into two halves
+
+ -/
 
 open ListLanguage
 
