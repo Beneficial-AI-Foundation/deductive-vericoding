@@ -79,17 +79,19 @@ def AppendSolution : AppendProblem := {
       simpa [UnCons, Param]
 }
 
--- def ReverseSolution : ReverseProblem := {
---   code := .lam fun l => .app (.listRec (.lam fun _ => .nil) AppendSolution.code)
---     (.mkPair .unit (.var l))
---   correct inp _ := by
---     induction inp with
---     | nil => rfl
---     | cons a l ih =>
---       simp [Trm.eval, Trm'.eval, Trm'.eval.go] at ih ⊢
---       rw [ih]
---       exact AppendSolution.correct (a, l.reverse) trivial
--- }
+def ReverseSolution : ReverseProblem := {
+  code := .listRec UnCons (.lam fun _ => .nil) (.lam fun k => .app AppendSolution.code (.mkPair (.fst (.var k)) (.snd (.snd (.var k)))))
+  correct inp _ := by
+    induction inp with
+    | nil => simp [Trm.eval, Trm'.eval, Recursor.fold]
+    | cons a l ih =>
+      simp [Trm.eval, Trm'.eval, Trm.eval] at ih ⊢
+      rw [Recursor.fold]
+      simp [dup.map]
+      have : (UnCons.split (a :: l)).2 = l := rfl
+      rw [this, ih]
+      exact AppendSolution.correct (a, l.reverse) trivial
+  }
 
 def ConcatSolution : ConcatProblem := {
   code := .listRec (Param (t:=.list) Nat.one_pos UnCons) (.lam fun k => .fst (.var k)) (.lam fun p => .cons (.fst (.var p)) (.snd (.snd (.var p))))
