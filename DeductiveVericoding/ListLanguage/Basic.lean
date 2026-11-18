@@ -200,7 +200,7 @@ structure Recursor (s u : Tpe) (d : Nat) where
   depth : s.denote → Nat
   unsplit_split : ∀ x, depth x > 0 → unsplit (split x) = x
   -- descending : ∀ x, depth x > 0 → dup.foldl (t := .nat) max (dup.map depth (split x).snd) < depth x
-  descending : ∀ x, depth x > 0 → ((dup.toList (split x).snd).map depth).foldl max 0 < depth x
+  descending : ∀ x, depth x > 0 → ((dup.toList (split x).2).map depth).foldl max 0 < depth x
 
 /-- The running `max` fold over a list of naturals dominates its starting value. -/
 private theorem init_le_foldl_max : ∀ (l : List Nat) (init : Nat), init ≤ l.foldl max init

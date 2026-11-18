@@ -2,13 +2,7 @@ import DeductiveVericoding.ListLanguage.InsertionSort
 
 open ListLanguage
 
-/- TODO:
-  Recursor TypeClass
-  List -> List TypeClass
-  if time: Merge Sort -/
-
-/-!
-# Harder vericoding problems
+/- # Harder vericoding problems
 
 Every specification in `Problems.lean` has the shape `out = f inp`: it names the answer, so a
 derivation only ever has to *build* the named term and never has to decide anything. The problems
