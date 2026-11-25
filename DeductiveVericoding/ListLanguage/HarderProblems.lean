@@ -37,7 +37,7 @@ No recursion, but the specification still leaves `vericode` a choice. -/
 one. `vericode` takes the first. -/
 def WitnessSpec (p : Nat × Nat) (out : Nat) : Prop := out = p.1 ∨ out = p.2
 
-abbrev WitnessProblem := Impl (.pair .nat .nat) .nat (fun _ => True) WitnessSpec
+abbrev WitnessProblem := Impl (.nat ⊗ .nat) .nat (fun _ => True) WitnessSpec
 
 theorem witness_left (p : Nat × Nat) (out : Nat) (h : out = p.1) : WitnessSpec p out := Or.inl h
 
@@ -51,7 +51,7 @@ where both booleans are correct. -/
 def CmpSpec (p : Nat × Nat) (out : Bool) : Prop :=
   (out = true → p.1 ≤ p.2) ∧ (out = false → p.2 ≤ p.1)
 
-abbrev CmpProblem := Impl (.pair .nat .nat) .bool (fun _ => True) CmpSpec
+abbrev CmpProblem := Impl (.nat ⊗ .nat) .bool (fun _ => True) CmpSpec
 
 theorem cmp_true (p : Nat × Nat) (out : Bool) (h : p.1 ≤ p.2) (h2 : out = true) :
     CmpSpec p out := by subst h2; exact ⟨fun _ => h, by simp⟩
@@ -68,7 +68,7 @@ def CmpSolution : CmpProblem := by
 only ones reachable are `p.1` and `p.2`, so the derivation is forced to compare them. -/
 def UBSpec (p : Nat × Nat) (out : Nat) : Prop := p.1 ≤ out ∧ p.2 ≤ out
 
-abbrev UBProblem := Impl (.pair .nat .nat) .nat (fun _ => True) UBSpec
+abbrev UBProblem := Impl (.nat ⊗ .nat) .nat (fun _ => True) UBSpec
 
 theorem ub_left (p : Nat × Nat) (out : Nat) (h : p.2 ≤ p.1) (h2 : out = p.1) : UBSpec p out := by
   subst h2; exact ⟨le_refl _, h⟩
@@ -85,7 +85,7 @@ def UBSolution : UBProblem := by
 def OrderSpec (p : Nat × Nat) (out : Nat × Nat) : Prop :=
   out.1 ≤ out.2 ∧ (out = p ∨ out = (p.2, p.1))
 
-abbrev OrderProblem := Impl (.pair .nat .nat) (.pair .nat .nat) (fun _ => True) OrderSpec
+abbrev OrderProblem := Impl (.nat ⊗ .nat) (.nat ⊗ .nat) (fun _ => True) OrderSpec
 
 theorem order_id (p : Nat × Nat) (out : Nat × Nat) (h : p.1 ≤ p.2) (h2 : out = p) :
     OrderSpec p out := by subst h2; exact ⟨h, Or.inl rfl⟩
@@ -128,7 +128,7 @@ conclusion matches the postcondition, its first hypothesis is discharged from th
 def AppendSpec : Nat × List Nat → List Nat → Prop :=
   fun ⟨a, l⟩ out => List.Perm (a :: l) out ∧ last out = a
 
-abbrev AppendProblem_hard := Impl (.pair .nat .list) .list (fun _ => True) AppendSpec
+abbrev AppendProblem_hard := Impl (.nat ⊗ .list) .list (fun _ => True) AppendSpec
 
 theorem AppendSpec_empty (a : Nat) (l : List Nat) : AppendSpec (a, []) l ↔ l = [a] := by
   simp [AppendSpec]
@@ -159,7 +159,7 @@ only contain *an* occurrence of each qualifying element. -/
 def FilterSpec : Nat × List Nat → List Nat → Prop := fun (a, l) out =>
   out.Sublist l ∧ (∀ x ∈ out, x ≤ a) ∧ (∀ x ∈ l, x ≤ a → x ∈ out)
 
-abbrev FilterProblem := Impl (.pair .nat .list) .list (fun _ => True) FilterSpec
+abbrev FilterProblem := Impl (.nat ⊗ .list) .list (fun _ => True) FilterSpec
 
 theorem FilterSpec_nil (a : Nat) (out : List Nat) : FilterSpec (a, []) out ↔ out = [] := by
   constructor
@@ -249,7 +249,7 @@ carries a value the base case needs. -/
 def MinSpec : Nat × List Nat → Nat → Prop := fun (a, l) out =>
   (out ≤ a ∧ ∀ x ∈ l, out ≤ x) ∧ (out = a ∨ out ∈ l)
 
-abbrev MinProblem := Impl (.pair .nat .list) .nat (fun _ => True) MinSpec
+abbrev MinProblem := Impl (.nat ⊗ .list) .nat (fun _ => True) MinSpec
 
 theorem MinSpec_nil (a out : Nat) (h : out = a) : MinSpec (a, []) out := by
   subst h; exact ⟨⟨le_refl _, by simp⟩, Or.inl rfl⟩
@@ -285,7 +285,7 @@ circuit falls out of the specification rather than being programmed in. -/
 def AllLESpec : Nat × List Nat → Bool → Prop := fun (a, l) out =>
   (out = true → ∀ x ∈ l, x ≤ a) ∧ (out = false → ∃ x ∈ l, ¬ x ≤ a)
 
-abbrev AllLEProblem := Impl (.pair .nat .list) .bool (fun _ => True) AllLESpec
+abbrev AllLEProblem := Impl (.nat ⊗ .list) .bool (fun _ => True) AllLESpec
 
 theorem AllLESpec_nil (a : Nat) (out : Bool) (h : out = true) : AllLESpec (a, []) out := by
   subst h; exact ⟨by simp, by simp⟩
@@ -322,7 +322,7 @@ def PartSpec : Nat × List Nat → List Nat × List Nat → Prop := fun (a, l) o
   (out.1 ++ out.2).Perm l ∧ (∀ x ∈ out.1, x ≤ a) ∧ (∀ x ∈ out.2, ¬ x ≤ a)
 
 abbrev PartProblem :=
-  Impl (.pair .nat .list) (.pair .list .list) (fun _ => True) PartSpec
+  Impl (.nat ⊗ .list) (.list ⊗ .list) (fun _ => True) PartSpec
 
 theorem PartSpec_nil (a : Nat) (out : List Nat × List Nat) (h : out = ([], [])) :
     PartSpec (a, []) out := by subst h; exact ⟨by simp, by simp, by simp⟩
@@ -366,7 +366,7 @@ def MinMaxSpec : Nat × List Nat → Nat × Nat → Prop := fun p out =>
   MinSpec p out.1 ∧ MaxPSpec p out.2
 
 abbrev MinMaxProblem :=
-  Impl (.pair .nat .list) (.pair .nat .nat) (fun _ => True) MinMaxSpec
+  Impl (.nat ⊗ .list) (.nat ⊗ .nat) (fun _ => True) MinMaxSpec
 
 /-- The minimum never exceeds the maximum. Needed by `MinMaxSpec_newMax`: knowing only that `b`
 is above the running maximum, it still has to place `b` above the running minimum. -/
@@ -445,7 +445,7 @@ def MergeSpec : List Nat × List Nat → List Nat → Prop := fun (l1, l2) out =
   Ordered out ∧ (l1 ++ l2).Perm out
 
 abbrev MergeProblem :=
-  Impl (.pair .list .list) .list (fun p => Ordered p.1 ∧ Ordered p.2) MergeSpec
+  Impl (.list ⊗ .list) .list (fun p => Ordered p.1 ∧ Ordered p.2) MergeSpec
 
 theorem MergeSpec_nil (l1 out : List Nat) (h : Ordered l1) :
     MergeSpec (l1, []) out ↔ out = l1 := by
@@ -462,9 +462,9 @@ def MergeSolution : MergeProblem := by
     rintro ⟨l1, l2⟩ ⟨rfl, h1, -⟩ out h
     exact (MergeSpec_nil l1 out h1).mpr h
   · -- the merged tail `res` is sorted, so merging the head `a` in is exactly an insertion
-    refine RelaxPostTactic (I := .nat ×L (.list ×L .list) ×L .list) _
+    refine RelaxPostTactic (I := .nat ⊗ (.list ⊗ .list) ⊗ .list) _
       (fun inp out => Sorted (inp.1 :: inp.2.2) out) ?_ ?_
-    · refine SplitTactic (.nat ×L (.list ×L .list) ×L .list) (.nat ×L .list) .list
+    · refine SplitTactic (.nat ⊗ (.list ⊗ .list) ⊗ .list) (.nat ⊗ .list) .list
         (fun inp => (inp.1, inp.2.2)) (fun p out => Sorted (p.1 :: p.2) out) (by vericode) ?_
       refine RelaxPreTactic (fun p => Ordered p.2) ?_ InsertionSolution
       rintro _ ⟨⟨b, ⟨l1, l2⟩, res⟩, ⟨⟨hres, -⟩, -⟩, rfl⟩
@@ -524,7 +524,7 @@ pair — two-line mirrors of `FstTactic` — plus a `boolCases` rule would settl
 
 **5. Folds that return a function.** The accumulator-passing reverse,
 `rev l = fold (fun acc => acc) (fun res a _ => fun acc => res (a :: acc)) l []`, is a fold at
-`s = .arrow .list .list`. This one is *half* unblocked and worth recording precisely, because the
+`s = .list ⇒ .list`. This one is *half* unblocked and worth recording precisely, because the
 remaining gap is small: `ListRecTactic` accepts the arrow instantiation, and `vericode` already
 closes the base case `∀ x, f x = [].reverse ++ x` on its own. The step goal
 `∀ x, out x = tl.reverse ++ a :: x` is where it stops, because closing it means applying `res` —

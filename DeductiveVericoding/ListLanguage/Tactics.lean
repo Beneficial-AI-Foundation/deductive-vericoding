@@ -49,7 +49,7 @@ def ContradictionTactic {s t : Tpe} {Pre : t.denote → Prop} {Post : t.denote �
 
 /- reduces a list problem to a pair problem -/
 def ConsTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → List Nat → Prop}
-  (impl : Impl t (.pair .nat .list) Pre (fun inp ⟨x, xs⟩ => Post inp (x :: xs))) :
+  (impl : Impl t (.nat ⊗ .list) Pre (fun inp ⟨x, xs⟩ => Post inp (x :: xs))) :
     Impl t .list Pre Post :=
   { code := .lam fun k => .cons (.fst (.app impl.code (.var k))) (.snd (.app impl.code (.var k)))
     correct := impl.correct
@@ -57,7 +57,7 @@ def ConsTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → List Nat
 
 /- reduces a boolean comparison to a pair problem -/
 def LETactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → Bool → Prop}
-  (impl : Impl t (.pair .nat .nat) Pre (fun inp ⟨x, y⟩ => Post inp (Nat.ble x y))) :
+  (impl : Impl t (.nat ⊗ .nat) Pre (fun inp ⟨x, y⟩ => Post inp (Nat.ble x y))) :
     Impl t .bool Pre Post :=
   { code := .lam fun k => .le (.fst (.app impl.code (.var k))) (.snd (.app impl.code (.var k)))
     correct := impl.correct
@@ -68,42 +68,42 @@ def PairTactic {s t u : Tpe} {Pre : s.denote → Prop}
   (Post1 :  s.denote → t.denote → Prop) (Post2 :  s.denote → u.denote → Prop)
   (impl1 : Impl s t Pre Post1)
   (impl2 : Impl s u Pre Post2) :
-    Impl s (.pair t u) Pre (fun inp out => Post1 inp out.1 ∧ Post2 inp out.2) :=
+    Impl s (t ⊗ u) Pre (fun inp out => Post1 inp out.1 ∧ Post2 inp out.2) :=
   { code := .lam fun k => .mkPair (.app impl1.code (.var k)) (.app impl2.code (.var k))
     correct inp pre := ⟨impl1.correct inp pre, impl2.correct inp pre⟩
   }
 
 def FstTactic {s t u : Tpe} {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
-  (impl : Impl s (.pair t u) Pre (fun inp out => Post inp out.1)) :
+  (impl : Impl s (t ⊗ u) Pre (fun inp out => Post inp out.1)) :
     Impl s t Pre Post :=
   { code := .lam fun k => .fst (.app impl.code (.var k)), correct := impl.correct }
 
 /- TODO: write Fst' and Snd' with stronger reduction-/
 
 def SndTactic {s t u : Tpe} {Pre : s.denote → Prop} {Post : s.denote → u.denote → Prop}
-  (impl : Impl s (.pair t u) Pre (fun inp out => Post inp out.2)) :
+  (impl : Impl s (t ⊗ u) Pre (fun inp out => Post inp out.2)) :
     Impl s u Pre Post :=
   { code := .lam fun k => .snd (.app impl.code (.var k)), correct := impl.correct }
 
 --should be scrapped at some point
 def SwapTactic {s t u : Tpe} {Pre : s.denote × t.denote → Prop} {Post : s.denote × t.denote → u.denote → Prop}
-  (impl : Impl (.pair t s) u (fun ⟨x, y⟩ => Pre ⟨y, x⟩) (fun ⟨x, y⟩ out => Post ⟨y, x⟩ out)) :
-    Impl (.pair s t) u Pre Post :=
+  (impl : Impl (t ⊗ s) u (fun ⟨x, y⟩ => Pre ⟨y, x⟩) (fun ⟨x, y⟩ out => Post ⟨y, x⟩ out)) :
+    Impl (s ⊗ t) u Pre Post :=
   { code := .lam fun k => .app impl.code (.mkPair (.snd (.var k)) (.fst (.var k))),
     correct inp pre := impl.correct ⟨inp.2, inp.1⟩ pre }
 
 --should be scrapped
 
 def AssocTactic {s t u v : Tpe} {Pre : v.denote × s.denote × t.denote → Prop} {Post : v.denote × s.denote × t.denote → u.denote → Prop}
-  (impl : Impl ((v ×L s) ×L t) u (fun ⟨⟨x, y⟩, z⟩ => Pre ⟨x, y, z⟩) (fun ⟨⟨x, y⟩, z⟩ out => Post ⟨x, y, z⟩ out)) :
-    Impl (v ×L s ×L t) u Pre Post :=
+  (impl : Impl ((v ⊗ s) ⊗ t) u (fun ⟨⟨x, y⟩, z⟩ => Pre ⟨x, y, z⟩) (fun ⟨⟨x, y⟩, z⟩ out => Post ⟨x, y, z⟩ out)) :
+    Impl (v ⊗ s ⊗ t) u Pre Post :=
   { code := .lam fun k => .app impl.code <| .mkPair (.mkPair  (.fst (.var k)) (.fst (.snd (.var k)))) (.snd (.snd (.var k))),
     correct inp pre := impl.correct ⟨⟨inp.1, inp.2.1⟩, inp.2.2⟩ pre }
 
 /- a tactic for eliminating Unit tpe from the input-/
 def ElimUnitTactic {t s: Tpe} {Pre : Unit × t.denote → Prop} {Post : Unit × t.denote → s.denote → Prop}
   (impl : Impl t s (fun inp => Pre ((), inp)) (fun inp out => Post ((), inp) out)) :
-    Impl (.pair .unit t) s Pre Post :=
+    Impl (.unit ⊗ t) s Pre Post :=
   { code := .lam fun k => .app impl.code (.snd (.var k)), correct inp pre := impl.correct inp.2 pre }
 
 /-Recursion Tactics-/
@@ -112,7 +112,7 @@ def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d)
     {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
     (h : ∀ x, Pre x → 0 < R.depth x → dup.Forall Pre (R.split x).2)
     (base : Impl s t (fun inp ↦ R.depth inp = 0 ∧ Pre inp) Post)
-    (step : Impl (u ×L dup s d ×L dup t d) t
+    (step : Impl (u ⊗ dup s d ⊗ dup t d) t
       (fun (p, (inp, res)) ↦ dup.Forall₂ Post inp res ∧ Pre (R.unsplit (p, inp)))
       (fun (p, inp, _) out ↦ Post (R.unsplit (p, inp)) out)) :
     Impl s t Pre Post :=
@@ -142,7 +142,7 @@ def ListRecTactic {s t u : Tpe} {d : Nat} (R : Recursor s u d)
 
 def ListRecTactic' {s t u : Tpe} {d : Nat} (R : Recursor s u d) {Pre : s.denote → Prop} {Post : s.denote → t.denote → Prop}
   (base : Impl s t (fun inp ↦ R.depth inp = 0 ∧ Pre inp) Post)
-  (step : Impl (u ×L dup s d) t (fun inp ↦ Pre (R.unsplit inp)) (fun inp out ↦ Post (R.unsplit inp) out)) :
+  (step : Impl (u ⊗ dup s d) t (fun inp ↦ Pre (R.unsplit inp)) (fun inp out ↦ Post (R.unsplit inp) out)) :
     Impl s t Pre Post :=
   { code := .listRec R base.code (.lam fun k => .app step.code <| .mkPair (.fst (.var k)) (.fst (.snd (.var k))))
     correct inp pre := by
@@ -312,7 +312,7 @@ def vpairCore : TacticM Unit := do
 
 On a goal
 ```
-Impl s (.pair t u) Pre (fun inp out => A[out.1] ∧ B[out.2])
+Impl s (t ⊗ u) Pre (fun inp out => A[out.1] ∧ B[out.2])
 ```
 `Vpair` reads the component types `t` and `u` off the goal's output type and recovers
 `Post1 := fun inp o₁ => A[o₁]` and `Post2 := fun inp o₂ => B[o₂]` from the goal's

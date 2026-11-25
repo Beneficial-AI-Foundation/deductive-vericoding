@@ -303,7 +303,7 @@ def ReverseSolution' : ReverseProblem := by
   · simp
   apply AssocTactic
   simp [dup]
-  apply ListRecTactic (Param (t:=.nat ×L .list) Nat.one_pos UnCons)
+  apply ListRecTactic (Param (t:=.nat ⊗ .list) Nat.one_pos UnCons)
   · simp
   · simp [Param]
     pushpre

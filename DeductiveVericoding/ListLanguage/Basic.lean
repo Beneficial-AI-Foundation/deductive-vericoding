@@ -24,8 +24,8 @@ representation `rep : Tpe → Type`. This allows:
 ```
 inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | var : rep t → Trm' rep t
-  | lam : (rep t → Trm' rep u) → Trm' rep (.arrow t u)  -- Lean function!
-  | app : Trm' rep (.arrow t u) → Trm' rep t → Trm' rep u
+  | lam : (rep t → Trm' rep u) → Trm' rep (t ⇒ u)  -- Lean function!
+  | app : Trm' rep (t ⇒ u) → Trm' rep t → Trm' rep u
   ...
 ```
 
@@ -59,14 +59,21 @@ inductive Tpe where
   | arrow : Tpe → Tpe → Tpe
   deriving Repr, BEq, DecidableEq
 
+/-- Product type of the language; denotes `×`. Same precedence as `×`, so `nat ⊗ list ⊗ list` is
+    `nat ⊗ (list ⊗ list)`. -/
+infixr:35 " ⊗ " => Tpe.pair
+/-- Function type of the language; denotes `→`. Same precedence as `→`, so `nat ⊗ list ⇒ list` is
+    `(nat ⊗ list) ⇒ list`. -/
+infixr:25 " ⇒ " => Tpe.arrow
+
 /-- Denotation of types to Lean types -/
 abbrev Tpe.denote : Tpe → Type
   | .unit => Unit
   | .bool => Bool
   | .nat => Nat
   | .list => List Nat
-  | .pair t u => t.denote × u.denote
-  | .arrow t u => t.denote → u.denote
+  | t ⊗ u => t.denote × u.denote
+  | t ⇒ u => t.denote → u.denote
 
 /-- Default value for each type -/
 instance instInhabitedDenote : (t : Tpe) → Inhabited t.denote
@@ -74,11 +81,8 @@ instance instInhabitedDenote : (t : Tpe) → Inhabited t.denote
   | .bool => inferInstanceAs (Inhabited Bool)
   | .nat => inferInstanceAs (Inhabited Nat)
   | .list => inferInstanceAs (Inhabited (List Nat))
-  | .pair t u => ⟨(instInhabitedDenote t).default, (instInhabitedDenote u).default⟩
-  | .arrow _t u => ⟨fun _ => (instInhabitedDenote u).default⟩
-
-notation s "→L" t => Tpe.arrow s t
-notation s "×L" t => Tpe.pair s t
+  | t ⊗ u => ⟨(instInhabitedDenote t).default, (instInhabitedDenote u).default⟩
+  | _t ⇒ u => ⟨fun _ => (instInhabitedDenote u).default⟩
 
 /-! ## Typed Trms (PHOAS-style) -/
 
@@ -93,7 +97,7 @@ notation s "×L" t => Tpe.pair s t
 abbrev dup (t : Tpe) : Nat → Tpe
   | 0 => .unit
   | 1 => t
-  | n + 2 => .pair t (dup t (n+1))
+  | n + 2 => t ⊗ dup t (n+1)
 
 abbrev dup.toList {t : Tpe} : {d : Nat} → (dup t d).denote → List t.denote
   | 0, _ => []
@@ -256,13 +260,13 @@ inductive Trm' (rep : Tpe → Type) : Tpe → Type where
   | num : Nat → Trm' rep .nat
   | cons : Trm' rep .nat → Trm' rep .list → Trm' rep .list
   | var : {t : Tpe} → rep t → Trm' rep t
-  | mkPair : {t u : Tpe} → Trm' rep t → Trm' rep u → Trm' rep (.pair t u)
-  | fst : {t u : Tpe} → Trm' rep (.pair t u) → Trm' rep t
-  | snd : {t u : Tpe} → Trm' rep (.pair t u) → Trm' rep u
-  | lam : {t u : Tpe} → (rep t → Trm' rep u) → Trm' rep (.arrow t u)
-  | app : {t u : Tpe} → Trm' rep (.arrow t u) → Trm' rep t → Trm' rep u
-  | listRec {s u t : Tpe} {d : Nat} (rec : Recursor s u d) : Trm' rep (s →L t) →
-    Trm' rep ((u ×L ((dup s d) ×L (dup t d))) →L t) → Trm' rep (s →L t)
+  | mkPair : {t u : Tpe} → Trm' rep t → Trm' rep u → Trm' rep (t ⊗ u)
+  | fst : {t u : Tpe} → Trm' rep (t ⊗ u) → Trm' rep t
+  | snd : {t u : Tpe} → Trm' rep (t ⊗ u) → Trm' rep u
+  | lam : {t u : Tpe} → (rep t → Trm' rep u) → Trm' rep (t ⇒ u)
+  | app : {t u : Tpe} → Trm' rep (t ⇒ u) → Trm' rep t → Trm' rep u
+  | listRec {s u t : Tpe} {d : Nat} (rec : Recursor s u d) : Trm' rep (s ⇒ t) →
+    Trm' rep (u ⊗ dup s d ⊗ dup t d ⇒ t) → Trm' rep (s ⇒ t)
   -- Boolean operations
   | true : Trm' rep .bool
   | false : Trm' rep .bool
@@ -278,8 +282,8 @@ instance instInhabitedTrm' {rep : Tpe → Type} : (t : Tpe) → Inhabited (Trm' 
   | .bool => ⟨.false⟩
   | .nat => ⟨.num 0⟩
   | .list => ⟨.nil⟩
-  | .pair t u => ⟨.mkPair (instInhabitedTrm' t).default (instInhabitedTrm' u).default⟩
-  | .arrow _ u => ⟨.lam fun _ => (instInhabitedTrm' u).default⟩
+  | t ⊗ u => ⟨.mkPair (instInhabitedTrm' t).default (instInhabitedTrm' u).default⟩
+  | _ ⇒ u => ⟨.lam fun _ => (instInhabitedTrm' u).default⟩
 
 /-- Closed terms are polymorphic over all variable representations -/
 def Trm (t : Tpe) := {rep : Tpe → Type} → Trm' rep t
@@ -290,8 +294,8 @@ def Tpe.pretty : Tpe → String
   | .bool => "Bool"
   | .nat => "Nat"
   | .list => "List"
-  | .pair t u => s!"({t.pretty} × {u.pretty})"
-  | .arrow t u => s!"({t.pretty} → {u.pretty})"
+  | t ⊗ u => s!"({t.pretty} × {u.pretty})"
+  | t ⇒ u => s!"({t.pretty} → {u.pretty})"
 
 /-- Pretty-print a term with string variables.
     Uses a counter to generate fresh variable names. -/
@@ -396,7 +400,7 @@ structure Impl (inTpe outTpe : Tpe)
     (Pre : inTpe.denote → Prop)
     (Post : inTpe.denote → outTpe.denote → Prop) where
   /-- The term implementing the function -/
-  code : Trm (.arrow inTpe outTpe)
+  code : Trm (inTpe ⇒ outTpe)
   /-- Correctness: precondition implies postcondition after evaluation -/
   correct : ∀ inp, Pre inp → Post inp (code.eval inp)
 

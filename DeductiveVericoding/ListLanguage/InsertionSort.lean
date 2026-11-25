@@ -89,7 +89,7 @@ lemma SortedOrdered_iff (l1 l2 : List Nat) (h : Ordered l1) : Sorted l1 l2 ↔ l
 
 abbrev SortingProblem := Impl .list .list (fun _ => True) (fun inp out => Sorted inp out)
 
-abbrev InsertProblem := Impl (.pair .nat .list) .list (fun inp => Ordered inp.2) (fun ⟨a, l⟩ out => Sorted (a :: l) out)
+abbrev InsertProblem := Impl (.nat ⊗ .list) .list (fun inp => Ordered inp.2) (fun ⟨a, l⟩ out => Sorted (a :: l) out)
 
 def InsertionSolution : InsertProblem := by
   apply ListRecTactic <| Param (t:=.nat) Nat.one_pos UnCons
@@ -99,7 +99,7 @@ def InsertionSolution : InsertProblem := by
     | nil => simp [Ordered]
     | cons a l _ => exact Ordered_tail _ _ h1
   · simp [Param]
-    apply RelaxPreTactic (I:=.nat ×L .list) (fun inp => inp.2 = [])
+    apply RelaxPreTactic (I:=.nat ⊗ .list) (fun inp => inp.2 = [])
     · simp
     pushpre
     apply RelaxPostTactic _ (fun (inp : Nat × List Nat) out => Sorted [inp.1] out) ?_ (by simp [Sorted])
@@ -182,7 +182,7 @@ def InsertionSortSolution : SortingProblem := by
   simp [dup, UnCons]
   refine RelaxPostTactic _ (fun (a, l, res) out => Sorted (a :: res) out) ?_ ?_
   · refine RelaxPreTactic (fun (a, l, res) => Ordered res) (fun _ pre => pre.1) ?_
-    refine SplitTactic (.pair .nat (.pair .list .list)) (.pair .nat .list) .list (fun (a, l, res) => (a, res)) (fun (a, res) out => Sorted (a :: res) out) ?_ ?_
+    refine SplitTactic (.nat ⊗ .list ⊗ .list) (.nat ⊗ .list) .list (fun (a, l, res) => (a, res)) (fun (a, res) out => Sorted (a :: res) out) ?_ ?_
     · Vpair
       · apply FstTactic
         apply IdentityTactic

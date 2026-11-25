@@ -31,15 +31,15 @@ inductive Trm : Ctx → Tpe → Type where
   | num     : {Γ : Ctx} → Nat → Trm Γ .nat
   | par     : {Γ : Ctx} → (i : Nat) → (t : Tpe) → Trm Γ t
   | cons    : {Γ : Ctx} → Trm Γ .nat → Trm Γ .list → Trm Γ .list
-  | mkPair  : {Γ : Ctx} → {t u : Tpe} → Trm Γ t → Trm Γ u → Trm Γ (.pair t u)
-  | fst     : {Γ : Ctx} → {t u : Tpe} → Trm Γ (.pair t u) → Trm Γ t
-  | snd     : {Γ : Ctx} → {t u : Tpe} → Trm Γ (.pair t u) → Trm Γ u
-  | lam     : {Γ : Ctx} → {s u : Tpe} → Trm (s :: Γ) u → Trm Γ (.arrow s u)
-  | app     : {Γ : Ctx} → {s u : Tpe} → Trm Γ (.arrow s u) → Trm Γ s → Trm Γ u
+  | mkPair  : {Γ : Ctx} → {t u : Tpe} → Trm Γ t → Trm Γ u → Trm Γ (t ⊗ u)
+  | fst     : {Γ : Ctx} → {t u : Tpe} → Trm Γ (t ⊗ u) → Trm Γ t
+  | snd     : {Γ : Ctx} → {t u : Tpe} → Trm Γ (t ⊗ u) → Trm Γ u
+  | lam     : {Γ : Ctx} → {s u : Tpe} → Trm (s :: Γ) u → Trm Γ (s ⇒ u)
+  | app     : {Γ : Ctx} → {s u : Tpe} → Trm Γ (s ⇒ u) → Trm Γ s → Trm Γ u
   /-- Applied list recursion producing a `.list`. On `a :: l` the `step` runs in the
       context extended with `a` (`.par 0`), `l` (`.par 1`) and the recursive result on `l`
       (`.par 2`); on `[]` it is `base`. The last argument is the list being folded. -/
-  | listRec : {Γ : Ctx} → Trm Γ .list → Trm (.nat :: .list :: .list :: Γ) .list → Trm Γ (.arrow .list .list)
+  | listRec : {Γ : Ctx} → Trm Γ .list → Trm (.nat :: .list :: .list :: Γ) .list → Trm Γ (.list ⇒ .list)
   | true    : {Γ : Ctx} → Trm Γ .bool
   | false   : {Γ : Ctx} → Trm Γ .bool
   | le      : {Γ : Ctx} → Trm Γ .nat → Trm Γ .nat → Trm Γ .bool

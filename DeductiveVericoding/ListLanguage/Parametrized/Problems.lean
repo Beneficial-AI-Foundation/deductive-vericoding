@@ -5,7 +5,7 @@ open ListLanguage
 
 namespace Parametrized
 
-abbrev ConsProblem := ImplP [] (.arrow .nat (.arrow .list .list)) (fun _ f => ∀ n, ∀ l, f n l = n :: l)
+abbrev ConsProblem := ImplP [] (.nat ⇒ .list ⇒ .list) (fun _ f => ∀ n, ∀ l, f n l = n :: l)
 
 def ConsSolution : ConsProblem := by
   introP
@@ -17,7 +17,7 @@ def ConsSolution : ConsProblem := by
 #eval Trm.pretty (toClosed ConsSolution.code)
 -- "(λ x0 : Nat => (λ x1 : List => x0 :: x1))"
 
-abbrev AppendParameterProblem := ImplP [] (.arrow .nat (.arrow .list .list)) (fun _ f => ∀ n, ∀ l, f n l = l.append [n])
+abbrev AppendParameterProblem := ImplP [] (.nat ⇒ .list ⇒ .list) (fun _ f => ∀ n, ∀ l, f n l = l.append [n])
 
 def AppendParameterSolution : AppendParameterProblem := by
   introP
@@ -34,7 +34,7 @@ def AppendParameterSolution : AppendParameterProblem := by
 #eval Trm.pretty (toClosed AppendParameterSolution.code)
 -- "(λ x0 : Nat => listRec((λ x1 : Unit => x0 :: []), (λ x2 : Nat => (λ x3 : List => (λ x4 : List => x2 :: x4)))))"
 
-abbrev ReverseProblem := ImplP []  (.arrow .list .list) (fun _ f => ∀ l, f l = l.reverse)
+abbrev ReverseProblem := ImplP []  (.list ⇒ .list) (fun _ f => ∀ l, f l = l.reverse)
 
 def ReverseSolution : ReverseProblem := by
   listRecP
@@ -56,7 +56,7 @@ def ReverseSolution : ReverseProblem := by
 #eval Trm.pretty (toClosed ReverseSolution.code)
 -- "listRec((λ x0 : Unit => []), (λ x1 : Nat => (λ x2 : List => (λ x3 : List => listRec((λ x4 : Unit => x1 :: []), (λ x5 : Nat => (λ x6 : List => (λ x7 : List => x5 :: x7))))(x3)))))"
 
-abbrev AppendListProblem := ImplP [] (.arrow .list (.arrow .list .list)) (fun _ f ↦ ∀ l1, ∀ l2, f l1 l2 = l2.append l1)
+abbrev AppendListProblem := ImplP [] (.list ⇒ .list ⇒ .list) (fun _ f ↦ ∀ l1, ∀ l2, f l1 l2 = l2.append l1)
 
 def AppendListSolution : AppendListProblem := by
   introP
@@ -83,11 +83,11 @@ def AppendListSolution' : AppendListProblem := by vericodeP
 
 def ReverseSolution' : ReverseProblem := by vericodeP
 
-abbrev AppenListProblem_swapped := ImplP [] (.arrow .list (.arrow .list .list)) (fun _ f ↦ ∀ l1, ∀ l2, f l1 l2 = l1.append l2)
+abbrev AppenListProblem_swapped := ImplP [] (.list ⇒ .list ⇒ .list) (fun _ f ↦ ∀ l1, ∀ l2, f l1 l2 = l1.append l2)
 
 def AppendListSolution_swapped : AppenListProblem_swapped := by vericodeP
 
-abbrev List123Problem := ImplP [] (.arrow .unit .list) (fun _ out => ∀ x, out x = [1,2,3])
+abbrev List123Problem := ImplP [] (.unit ⇒ .list) (fun _ out => ∀ x, out x = [1,2,3])
 
 def List123Solution : List123Problem := by vericodeP
 

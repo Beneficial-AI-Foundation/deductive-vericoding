@@ -126,7 +126,7 @@ theorem toList'_eval : ∀ {Γ : Ctx} {t : Tpe} (e : Trm Γ t) (ρ : Env (Trm' T
     Correctness transfers via `toList'_eval`. -/
 def toImpl (inTpe outTpe : Tpe) (Pre : inTpe.denote → Prop)
     (Post : inTpe.denote → outTpe.denote → Prop)
-    (impl : ImplP [] (.arrow inTpe outTpe) (fun _ f => ∀ inp, Pre inp → Post inp (f inp))) :
+    (impl : ImplP [] (inTpe ⇒ outTpe) (fun _ f => ∀ inp, Pre inp → Post inp (f inp))) :
     ListLanguage.Impl inTpe outTpe Pre Post :=
   { code := toClosed impl.code
     correct := fun inp hpre => by

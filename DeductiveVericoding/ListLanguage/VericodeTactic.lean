@@ -15,7 +15,7 @@ open Lean Elab Tactic Meta
 def AppTactic (I s t : Tpe) (Pre : I.denote → Prop) (arg : I.denote → s.denote)
     (Cond : I.denote → s.denote → t.denote → Prop)
     (base : Impl I s Pre (fun inp out => out = arg inp))
-    (step : Impl I (.arrow s t) (fun _ => True) (fun inp f => ∀ x, Cond inp x (f x))) :
+    (step : Impl I (s ⇒ t) (fun _ => True) (fun inp f => ∀ x, Cond inp x (f x))) :
     Impl I t Pre (fun inp out => Cond inp (arg inp) out) :=
   { code := .lam fun k => .app (.app step.code (.var k)) (.app base.code (.var k))
     correct inp pre := by
@@ -25,12 +25,12 @@ def AppTactic (I s t : Tpe) (Pre : I.denote → Prop) (arg : I.denote → s.deno
       exact step.correct inp trivial (arg inp)
   }
 
-/-- **Introduce the argument of a helper.** Turn a solved `Impl (.pair I s) t` (with the new
-    argument paired onto the input) into an arrow-valued `Impl I (.arrow s t)`. The dual of
+/-- **Introduce the argument of a helper.** Turn a solved `Impl (I ⊗ s) t` (with the new
+    argument paired onto the input) into an arrow-valued `Impl I (s ⇒ t)`. The dual of
     `AppTactic`; the non-parametrized analogue of the parametrized `IntroPTactic`. -/
 def IntroTactic (I s t : Tpe) (Pre : I.denote → Prop) (PairPost : (I.denote × s.denote) → t.denote → Prop)
-    (impl : Impl (.pair I s) t (fun p => Pre p.1) PairPost) :
-    Impl I (.arrow s t) Pre (fun inp f => ∀ x, PairPost (inp, x) (f x)) :=
+    (impl : Impl (I ⊗ s) t (fun p => Pre p.1) PairPost) :
+    Impl I (s ⇒ t) Pre (fun inp f => ∀ x, PairPost (inp, x) (f x)) :=
   { code := .lam fun k => .lam fun x => .app impl.code (.mkPair (.var k) (.var x))
     correct inp pre := by
       intro x
@@ -286,7 +286,7 @@ attribute [aesop unsafe 70% apply (transparency := default) (rule_sets := [Veric
     general `LETactic` leaves `Nat.ble x y = Nat.ble a b` for its pair subgoal, which is not the
     conjunction `Vpair` splits; this version leaves `out.1 = a ∧ out.2 = b` instead. -/
 def LEEqTactic {t : Tpe} {Pre : t.denote → Prop} (t1 t2 : t.denote → Nat)
-    (impl : Impl t (.pair .nat .nat) Pre (fun inp out => out.1 = t1 inp ∧ out.2 = t2 inp)) :
+    (impl : Impl t (.nat ⊗ .nat) Pre (fun inp out => out.1 = t1 inp ∧ out.2 = t2 inp)) :
     Impl t .bool Pre (fun inp out => out = Nat.ble (t1 inp) (t2 inp)) :=
   LETactic <| RelaxPostTactic _ _ impl (by rintro inp - ⟨x, y⟩ ⟨h1, h2⟩; simp_all)
 
@@ -296,7 +296,7 @@ def PairEqTactic {s t u : Tpe} {Pre : s.denote → Prop} (t1 : s.denote → t.de
     (t2 : s.denote → u.denote)
     (impl1 : Impl s t Pre (fun inp out => out = t1 inp))
     (impl2 : Impl s u Pre (fun inp out => out = t2 inp)) :
-    Impl s (.pair t u) Pre (fun inp out => out = (t1 inp, t2 inp)) :=
+    Impl s (t ⊗ u) Pre (fun inp out => out = (t1 inp, t2 inp)) :=
   RelaxPostTactic _ _ (PairTactic _ _ impl1 impl2)
     (by rintro inp - ⟨x, y⟩ ⟨h1, h2⟩; simp_all)
 
@@ -321,12 +321,12 @@ sub-list of the input*:
   right-hand side and applies `AppTactic`, leaving `base := out = c` (closed by `projClose`)
   and a helper spec `step := ∀ x, f x = rhs[c ↦ x]`.
 * `introTac` introduces the helper's argument, pairing it onto the input, so the helper spec
-  becomes an ordinary `.list` goal `Impl (.pair I .list) .list (fun _ => True) …` — which
+  becomes an ordinary `.list` goal `Impl (I ⊗ .list) .list (fun _ => True) …` — which
   `ListRecTactic` then folds. Because `AppTactic`'s helper is unconditional, this inner goal
   is precondition-free, exactly what `ListRecTactic` needs. -/
 
 /-- Front-end for `IntroTactic` (cf. `introP`): reconstruct the residual pair-condition
-    `PairPost` from a goal `Impl I (.arrow s t) Pre (fun inp f => ∀ x, body)` where `f` occurs
+    `PairPost` from a goal `Impl I (s ⇒ t) Pre (fun inp f => ∀ x, body)` where `f` occurs
     only as `f x`, and apply `IntroTactic`, leaving the single paired-input subgoal. -/
 elab "introTac" : tactic => do
   let goal ← getMainGoal
@@ -1004,13 +1004,13 @@ instead *chooses* `R` from the input type, restricted for now to the two recurso
 head off the last component of the input:
 
 * input `.list`         ↦ `UnCons`
-* input `t ×L .list`    ↦ `Param (t := t) Nat.one_pos UnCons`
+* input `t ⊗ .list`    ↦ `Param (t := t) Nat.one_pos UnCons`
 
 and then normalises the three resulting goals the way the hand-written `XXXSolution'` proofs do
 (`simp [UnCons, Param, dup, …]`, then `pushpre`). -/
 
 /-- The recursor `listRecUC` uses on input type `I`, together with a function that picks the
-    recursion component out of an input value; `none` if `I` is not `.list` or `_ ×L .list`. -/
+    recursion component out of an input value; `none` if `I` is not `.list` or `_ ⊗ .list`. -/
 def ucRecursor? (I : Expr) : MetaM (Option (Expr × (Expr → MetaM Expr))) := do
   let I ← whnf I
   if I.isConstOf ``Tpe.list then
@@ -1098,7 +1098,7 @@ elab "listRecUC" : tactic => withMainContext do
   let #[I, O, Pre, Post] := tgt.getAppArgs
     | throwError "listRecUC: malformed `Impl` goal:{indentExpr tgt}"
   let some (R, component) ← ucRecursor? I
-    | throwError "listRecUC: the input type is neither `.list` nor `_ ×L .list`:{indentExpr I}"
+    | throwError "listRecUC: the input type is neither `.list` nor `_ ⊗ .list`:{indentExpr I}"
   unless ← postMentionsLast I O Post do
     throwError "listRecUC: the postcondition does not mention the list to recurse on"
   if ← preForcesNil I Pre component then

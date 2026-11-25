@@ -61,7 +61,7 @@ def LePTactic (Γ : Ctx) (e1 e2 : Env Tpe.denote Γ → Nat)
 def ListRecPTactic (Γ : Ctx) (Inv : Env Tpe.denote Γ → List Nat → List Nat → Prop)
     (base : ImplP Γ .list (fun env out => Inv env [] out))
     (step : ImplP (.nat :: .list :: .list :: Γ) .list (fun ⟨a, l, res, env⟩ out => Inv env l res → Inv env (a :: l) out)) :
-    ImplP Γ (.arrow .list .list) (fun env f => ∀ l, Inv env l (f l)) :=
+    ImplP Γ (.list ⇒ .list) (fun env f => ∀ l, Inv env l (f l)) :=
   { code := .listRec base.code step.code
     correct := fun env l => by
       simp only [Trm.eval]
@@ -79,12 +79,12 @@ def RelaxCondPTactic {Γ : Ctx} {t : Tpe} (Cond Cond' : Env Tpe.denote Γ → t.
     the condition — this is the substitution of the introduced parameter. -/
 def IntroPTactic (Γ : Ctx) (s t : Tpe) (Cond : Env Tpe.denote (s :: Γ) → t.denote → Prop)
     (impl : ImplP (s :: Γ) t Cond) :
-    ImplP Γ (.arrow s t) (fun env f => ∀ v, Cond (v, env) (f v)) :=
+    ImplP Γ (s ⇒ t) (fun env f => ∀ v, Cond (v, env) (f v)) :=
   { code := .lam impl.code, correct := fun env v => impl.correct (v, env) }
 
 def AppPTactic (Γ : Ctx) (s t : Tpe) (target : Env Tpe.denote Γ → s.denote) (Cond : Env Tpe.denote Γ → s.denote → t.denote → Prop)
   (base : ImplP Γ s (fun env out => out = target env))
-  (step : ImplP Γ (.arrow s t) (fun env f => ∀ x, Cond env x (f x))) :
+  (step : ImplP Γ (s ⇒ t) (fun env f => ∀ x, Cond env x (f x))) :
     ImplP Γ t (fun env out => Cond env (target env) out) :=
   { code := .app step.code base.code, correct env := by
       rw [Trm.eval, base.correct]
@@ -207,7 +207,7 @@ unification problem
 is outside Lean's pattern-unification fragment (`f v` is `?Cond` applied to a *non-variable*),
 so `apply` cannot solve for `?Cond` on its own.
 
-`introP` inspects the goal instead. It expects a goal `ImplP Γ (.arrow s t) GoalCond` where
+`introP` inspects the goal instead. It expects a goal `ImplP Γ (s ⇒ t) GoalCond` where
 `GoalCond = fun env f => ∀ v, body` and `f` occurs in `body` only as `f v`. It then builds
 ```
 Cond := fun p out => body[  f v ↦ out,  v ↦ p.1,  env ↦ p.2  ]
@@ -275,7 +275,7 @@ elab "introP" : tactic => do
 
 Just like `introP`, the invariant `Inv` is a higher-order metavariable that `apply` cannot
 solve for, because the goal condition applies it to `f l` (a non-variable). `listRecP` reads
-the goal `ImplP Γ (.arrow .list .list) GoalCond` with `GoalCond = fun env f => ∀ l, body`,
+the goal `ImplP Γ (.list ⇒ .list) GoalCond` with `GoalCond = fun env f => ∀ l, body`,
 and reconstructs
 ```
 Inv := fun env inp out => body[  f l ↦ out,  l ↦ inp  ]

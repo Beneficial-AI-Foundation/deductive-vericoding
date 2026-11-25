@@ -13,7 +13,7 @@ abbrev sorted : List Nat → List Nat
   | [] => []
   | x :: xs => insertVal x (sorted xs)
 
-abbrev InsertionSortProblem := ImplP [] (.arrow .list .list) (fun _ f => ∀ l, f l = sorted l)
+abbrev InsertionSortProblem := ImplP [] (.list ⇒ .list) (fun _ f => ∀ l, f l = sorted l)
 
 -- The whole derivation is found by a single search, once `vericode` is told to unfold the
 -- problem-specific definitions. `insertVal` uses `bif Nat.ble a h` (a `Bool`), so the

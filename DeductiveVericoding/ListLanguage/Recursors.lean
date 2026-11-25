@@ -10,7 +10,7 @@ import DeductiveVericoding.ListLanguage.Basic
 
 open ListLanguage
 
-def Param {s u t : Tpe} {d : Nat} (hd : d > 0) (R : Recursor s u d) : Recursor (t ×L s) u d := {
+def Param {s u t : Tpe} {d : Nat} (hd : d > 0) (R : Recursor s u d) : Recursor (t ⊗ s) u d := {
   split x := by
     refine ((R.split x.2).1, dup.map ?_ (R.split x.2).2)
     exact fun y => (x.1, y)
@@ -23,7 +23,7 @@ def Param {s u t : Tpe} {d : Nat} (hd : d > 0) (R : Recursor s u d) : Recursor (
   unsplit_split := by
     simp [← dup.map_toList]
     intro a b hb
-    have : ((fun (x : (t ×L s).denote) ↦ x.snd) ∘ fun y ↦ (a, y)) = id := rfl
+    have : ((fun (x : (t ⊗ s).denote) ↦ x.snd) ∘ fun y ↦ (a, y)) = id := rfl
     simp [this]
     exact R.unsplit_split b hb
   descending x h := by
