@@ -18,74 +18,285 @@ partitioning, merging and insertion sort.
 
 ## The language
 
-Types are a small universe with a denotation into Lean types (`Basic.lean`):
+The programs live in a small, made-up programming language (`Basic.lean`). Its types are `unit`,
+`bool`, `nat`, `list` (lists of naturals), pairs `s ⊗ t`, and functions `s ⇒ t`. Terms are
+what you would expect: numbers, `true`/`false`, a comparison `le`, `if … then … else`, pairs with
+their projections, and lambda and application. Lists have two constructors, `nil` and `cons`.
+
+Types of the language are just data (an inductive type `Tpe`). `Tpe.denote` maps each of them to
+the Lean type its values live in, so that specifications can talk about inputs and outputs using
+ordinary Lean functions and lemmas (`List.reverse`, `List.Perm`, `≤`, …):
 
 ```lean
-inductive Tpe where
-  | unit | bool | nat | list
-  | pair : Tpe → Tpe → Tpe
-  | arrow : Tpe → Tpe → Tpe
+abbrev Tpe.denote : Tpe → Type
+  | .unit => Unit
+  | .bool => Bool
+  | .nat => Nat
+  | .list => List Nat
+  | t ⊗ u => t.denote × u.denote
+  | t ⇒ u => t.denote → u.denote
 ```
 
-Terms are written in PHOAS style (`Trm' rep t`), so binding is handled by Lean functions and
-evaluation needs no environment. Besides the usual `lam`/`app`/pairs/lists/`le`/`ite`, there is one
-recursion construct, parametrized by a **recursor**:
+The language's own symbols `⊗` and `⇒` keep its types apart from Lean's `×` and `→`, which are
+what they denote. A program of type `t` evaluates to a value of type `t.denote`: a program of type
+`list ⇒ list` evaluates to an actual Lean function `List Nat → List Nat`.
 
-```lean
-structure Recursor (s u : Tpe) (d : Nat) where
-  split   : s.denote → u.denote × (dup s d).denote
-  unsplit : u.denote × (dup s d).denote → s.denote
-  depth   : s.denote → Nat
-  unsplit_split : ∀ x, depth x > 0 → unsplit (split x) = x
-  descending : ∀ x, depth x > 0 → ((dup.toList (split x).2).map depth).foldl max 0 < depth x
-```
+## Problems and combinators
 
-A recursor says how to split a value into a piece of data (`u`) and `d` smaller values of the same
-type, and proves that the splitting terminates. `Recursors.lean` provides:
-- `UnCons`, which splits a list into its head and tail;
-- `Param`, which carries an extra parameter along with another recursor;
-- `Halve`, which splits a list into two halves (the shape merge sort needs).
-
-`listRec R base step` then folds with `R`.
-
-A problem, and its solution, is an `Impl`: a program together with its correctness proof.
+A **problem** is a type `Impl I O Pre Post`, and a solution is a program from `I` to `O` together
+with a proof that it maps inputs satisfying `Pre` to outputs satisfying `Post`:
 
 ```lean
 structure Impl (inTpe outTpe : Tpe) (Pre : inTpe.denote → Prop)
     (Post : inTpe.denote → outTpe.denote → Prop) where
-  code : Trm (.arrow inTpe outTpe)
+  code : Trm (inTpe ⇒ outTpe)
   correct : ∀ inp, Pre inp → Post inp (code.eval inp)
 ```
 
-Stating a problem means writing down the type `Impl I O Pre Post`. For example (`Problems.lean`):
+Stating a problem means writing down such a type. The simplest kind of problem names its answer
+outright, e.g. "return the list `[1, 2, 3]`" (`Problems.lean`):
 
 ```lean
-abbrev ReverseProblem := Impl .list .list (fun _ => True) (fun l out => out = l.reverse)
+abbrev List123Problem := Impl .unit .list (fun _ => True) (fun _ out => out = [1,2,3])
 ```
 
-## Combinators: refinement steps you can apply
+### Combinators
 
-A **combinator** (`Tactics.lean`) is a Lean function that builds an `Impl` from smaller `Impl`s,
-so `apply`-ing it turns one goal into a few simpler ones. Some examples:
+A **combinator** (`Tactics.lean`) is a Lean function that builds an `Impl` from smaller `Impl`s.
+It's a refinement rule with its proof built in, so `apply`-ing it turns one goal into a few simpler
+ones. Three small examples:
 
-- **Leaf closers** produce a constant and leave a plain logical obligation:
-  `NilTactic (h : ∀ inp, Pre inp → Post inp []) : Impl t .list Pre Post`.
-- **`ConsTactic`** reduces "produce a list" to "produce a head and a tail".
-  **`PairTactic`/`Vpair`** split a pair-valued goal into two independent ones.
-- **`CasesTactic cond`** produces an `ite`. It leaves three goals: compute the boolean `cond`, solve
-  the problem when `cond` holds, and solve it when it doesn't.
-- **`RelaxPostTactic`/`RelaxPreTactic`** change the specification instead of the code: replace
-  `Post` by a stronger `Post'`, or `Pre` by a weaker `Pre'`.
-- **`ListRecTactic R`** is the induction principle. It produces a `listRec` and leaves three goals:
-  1. a base case, under the extra precondition `R.depth inp = 0`;
-  2. a step case, whose input carries the split-off data, the smaller values and the results of the
-     recursive calls on them, with their postconditions available as a precondition;
-  3. a proof that the precondition survives the split.
-- **`AppTactic`/`IntroTactic`** apply and introduce *helper functions*. A step can call a separately
-  derived function on part of its input.
+`NilTactic` returns the empty list. Its only requirement is a plain logical fact: the empty list
+satisfies the postcondition.
 
-A derivation by hand is ordinary Lean tactic code. Here is `out = inp ++ [1]`, from
-`Solutions.lean`:
+```lean
+def NilTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → List Nat → Prop}
+  (h : ∀ inp : t.denote, Pre inp → Post inp []) :
+    Impl t .list Pre Post :=
+  {code := .lam fun _ => .nil, correct := h}
+```
+
+`IdentityTactic` returns the input unchanged, provided the input itself satisfies the
+postcondition.
+
+```lean
+def IdentityTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → t.denote → Prop}
+  (h : ∀ inp : t.denote, Pre inp → Post inp inp) :
+    Impl t t Pre Post :=
+  { code := .lam fun k => .var k, correct := h}
+```
+
+`ConsTactic` doesn't finish anything. It turns "produce a list" into "produce a pair (head, tail)",
+which is a new, smaller `Impl` goal, and builds `head :: tail` from its solution:
+
+```lean
+def ConsTactic {t : Tpe} {Pre : t.denote → Prop} {Post : t.denote → List Nat → Prop}
+  (impl : Impl t (.nat ⊗ .list) Pre (fun inp ⟨x, xs⟩ => Post inp (x :: xs))) :
+    Impl t .list Pre Post :=
+  { code := .lam fun k => .cons (.fst (.app impl.code (.var k))) (.snd (.app impl.code (.var k)))
+    correct := impl.correct
+  }
+```
+
+The others follow the same pattern. The ones used below are:
+- `NumTactic n`, which returns a constant;
+- `Vpair`, which splits a pair-valued goal into one goal per component;
+- `FstTactic`/`SndTactic`, which take a component of the input;
+- `CasesTactic`, which produces an `if`;
+- `RelaxPostTactic`/`RelaxPreTactic`, which change the specification instead of the code.
+
+### Example: three ways to solve `List123Problem`
+
+**By hand.** A solution can be written directly, as a program together with its proof. Here the
+proof is just `rfl`, because the program evaluates to `[1, 2, 3]` by computation (`Solutions.lean`):
+
+```lean
+def List123Solution : List123Problem := {
+  code := .lam fun _ => .cons (.num 1) (.cons (.num 2) (.cons (.num 3) .nil))
+  correct _ _ := rfl
+}
+```
+
+**By applying combinators.** Instead of writing the program, we refine the goal. `apply ConsTactic`
+asks for a head and a tail:
+
+```
+⊢ Impl unit (nat ⊗ list) (fun x => True) fun inp x =>
+    match x with
+    | (x, xs) => x :: xs = [1, 2, 3]
+```
+
+`Vpair` splits that pair goal into one goal per component:
+
+```
+⊢ Impl unit nat  (fun x => True) fun inp o₁ => o₁ = 1
+⊢ Impl unit list (fun x => True) fun inp o₂ => o₂ = [2, 3]
+```
+
+`NumTactic 1` closes the first, leaving only the logical obligation `∀ inp, True → 1 = 1`, which
+`simp` proves. The second is the same kind of problem again, one element shorter, so the same steps
+repeat until `NilTactic` closes `o₂ = []`:
+
+```lean
+def List123Solution' : List123Problem := by
+  apply ConsTactic
+  Vpair
+  · apply NumTactic 1
+    simp
+  · apply ConsTactic
+    Vpair
+    · apply NumTactic 2
+      simp
+    · apply ConsTactic
+      Vpair
+      · apply NumTactic 3
+        simp
+      · apply NilTactic
+        simp
+```
+
+The program is assembled by the combinators and its correctness proof comes with it; nobody wrote
+either down:
+
+```
+#eval List123Solution'.code.eval ()   -- [1, 2, 3]
+```
+
+**By search.** Every step above was "`apply` some combinator, then prove a small obligation", so the
+derivation can be searched for. `vericode`, described below, finds it on its own:
+
+```lean
+def List123Solution'' : List123Problem := by vericode
+```
+
+## Recursion
+
+There is no general recursion in the language; instead a list is folded with `listRec R base step`,
+where `R` is a **recursor**. A recursor says how to take a value apart:
+- whether it is a base case (its `depth` is `0`);
+- otherwise, how to `split` it into some data plus smaller values of the same type, and how to put
+  it back together (`unsplit`).
+
+It also carries two proofs: that `unsplit` undoes `split`, and that the smaller values really are
+smaller, so every `listRec` terminates. A recursor `Recursor s u d` splits a value of type `s` into
+data of type `u` and `d` smaller values of type `s` (`dup s d` is the `d`-fold product of `s`):
+
+```lean
+structure Recursor (s u : Tpe) (d : Nat) where
+  split : s.denote → u.denote × (dup s d).denote
+  unsplit : u.denote × (dup s d).denote → s.denote
+  depth : s.denote → Nat
+  unsplit_split : ∀ x, depth x > 0 → unsplit (split x) = x
+  descending : ∀ x, depth x > 0 → ((dup.toList (split x).2).map depth).foldl max 0 < depth x
+```
+
+`listRec` then runs like this:
+
+```
+                  listRec R base step x
+                            │
+            ┌─────── R.depth x = 0 ? ───────┐
+            │                               │
+           yes                             no
+            ▼                               ▼
+         base x                R.split x = (u, x₁, …, xₙ)
+                                            │
+                                            │  recurse on each smaller value:
+                                            │    res₁ = listRec R base step x₁
+                                            │      ⋮
+                                            │    resₙ = listRec R base step xₙ
+                                            ▼
+                         step (u, (x₁, …, xₙ), (res₁, …, resₙ))
+```
+
+The recursor used most is `UnCons` (`Recursors.lean`): depth is the length of the list, `split`
+takes `a :: l` to `(a, l)`, and there is one smaller value (`d = 1`):
+
+```lean
+def UnCons : Recursor .list .nat 1 := {
+  split l := match l with
+    | [] => ((0 : Nat), [])
+    | x :: xs => (x, xs)
+  unsplit y := y.1 :: y.2
+  depth l := l.length
+  unsplit_split l := by grind
+  descending l := by grind
+}
+```
+
+With it, `listRec` is ordinary head/tail recursion:
+
+```
+listRec UnCons base step [5, 6]
+  = step (5, [6], listRec UnCons base step [6])
+  = step (5, [6], step (6, [], listRec UnCons base step []))
+  = step (5, [6], step (6, [], base []))
+```
+The combinator for recursion is **`ListRecTactic R`**, the induction principle. It produces
+`listRec R base step` and leaves a goal for `base`, a goal for `step`, and a side condition. In the
+step goal, the precondition says that the recursive results already satisfy the postcondition.
+
+### Walking through an example
+
+Take the problem "append `1` to the end of a list" (`Problems.lean`):
+
+```lean
+abbrev AppendConstantProblem :=
+  Impl .list .list (fun _ => True) (fun inp out => out = inp.append [1])
+```
+
+Here is its derivation (`AppendConstantSolution'` in `Solutions.lean`), with the goal Lean shows
+after each step.
+
+**Recursion.** `apply ListRecTactic UnCons` leaves (among others) a base goal and a step goal:
+
+```
+case base
+⊢ Impl list list (fun inp => UnCons.depth inp = 0 ∧ True) fun inp out => out = List.append inp [1]
+
+case step
+⊢ Impl (nat ⊗ list ⊗ list) list (fun x => x.2.2 = x.2.1 ++ [1])
+       fun x out => out = x.1 :: (x.2.1 ++ [1])
+```
+
+The step goal is shown after `simp`. Its input is the triple `(hd, tl, res)` from the diagram, and
+its precondition is the *induction hypothesis*: `res = tl ++ [1]`.
+
+**The step case.** `pushpre` uses that equation to rewrite the postcondition, replacing
+`tl ++ [1]` by `res`:
+
+```
+⊢ Impl (nat ⊗ list ⊗ list) list (fun x => x.2.2 = x.2.1 ++ [1]) fun inp out => out = inp.1 :: inp.2.2
+```
+
+Now the goal says what to build: `hd :: res`. `ConsTactic` followed by `Vpair` splits it into one
+goal per component:
+
+```
+⊢ Impl (nat ⊗ list ⊗ list) nat  … fun inp o₁ => o₁ = inp.1      -- the head: take hd
+⊢ Impl (nat ⊗ list ⊗ list) list … fun inp o₂ => o₂ = inp.2.2    -- the tail: take res
+```
+
+Both are closed by projecting out of the input (`FstTactic`/`SndTactic`, then `IdentityTactic`).
+
+**The base case.** Here the input is `[]`, and the goal is `out = [] ++ [1]`. After `ConsTactic`,
+`pushpre` and `simp` it becomes a pair goal:
+
+```
+⊢ Impl list (nat ⊗ list) (fun inp => inp = []) fun inp out => out.1 = 1 ∧ out.2 = []
+```
+
+`Vpair` splits it, `NumTactic 1` closes `o₁ = 1`, and `NilTactic` closes `o₂ = []`.
+
+The finished `Impl` contains the program `listRec(λ _ => [1], λ (hd, tl, res) => hd :: res)`
+(simplified by hand; the printed term has many administrative redexes), and its correctness proof
+was assembled along the way:
+
+```
+#eval AppendConstantSolution'.code.eval [5, 6]   -- [5, 6, 1]
+```
+
+The full tactic script:
 
 ```lean
 def AppendConstantSolution' : AppendConstantProblem := by
@@ -113,9 +324,42 @@ def AppendConstantSolution' : AppendConstantProblem := by
       simp
 ```
 
-`pushpre` uses an equation in the precondition to rewrite the postcondition. In the step case the
-precondition says the recursive result `res` equals `tl ++ [1]`, so `pushpre` turns the goal
-`out = hd :: (tl ++ [1])` into `out = hd :: res`. That rewriting is the inductive step.
+### Recursing with a parameter: `Param`
+
+Now take "append `a` to the end of `l`", where `a` is part of the input (`Problems.lean`):
+
+```lean
+abbrev AppendProblem := Impl (.nat ⊗ .list) .list (fun _ => True) (fun ⟨a, l⟩ out => out = l.append [a])
+```
+
+The recursion should still run over the list `l`, but the input is now a pair `(a, l)`, which
+`UnCons` can't split. Simply dropping `a` doesn't work either: the base case has to return `[a]`,
+so every recursive call needs to know `a`. What's needed is a recursor that splits `l` as `UnCons`
+does and hands the unchanged `a` along to each smaller value.
+
+`Param` builds exactly that from any recursor. Given `R : Recursor s u d`, it gives a
+`Recursor (t ⊗ s) u d` that splits the `s` part with `R` and pairs every smaller value with the same
+parameter:
+
+```
+(Param UnCons).split (9, [5, 6]) = (5, (9, [6]))
+```
+
+The derivation is the AppendConstant one with this recursor: `apply ListRecTactic (Param (t := .nat)
+Nat.one_pos UnCons)`. The base case now returns `[a]` by taking `a` from the input instead of the
+constant `1`. `vericode` finds it too:
+
+```lean
+def AppendSolution'' : AppendProblem := by vericode
+```
+
+```
+#eval AppendSolution'.code.eval (9, [5, 6])   -- [5, 6, 9]
+```
+
+Recursors are a parameter of `listRec`, rather than built in, so that other shapes of recursion
+can be added the same way. `Recursors.lean` also defines `Halve`, which splits a list into *two*
+halves: the shape merge sort needs, where the step receives two recursive results.
 
 ## `vericode`: searching for the derivation
 
@@ -137,13 +381,15 @@ into small **front-ends** that compute those arguments from the goal:
 - `numClose` reads the constant `n` off `out = n`.
 - `LEEqTactic` and `PairEqTactic` handle the shapes `out = Nat.ble a b` and `out = (a, b)`.
 - `listRecUC` chooses the recursor from the input type (`UnCons` for `.list`, `Param … UnCons` for
-  `_ ×L .list`). It then normalizes the base and step goals and applies `pushpre` once. It refuses
+  `_ ⊗ .list`). It then normalizes the base and step goals and applies `pushpre` once. It refuses
   to recurse when the postcondition doesn't mention the list, or when the precondition already says
   the list is empty.
 - `appList` and `introTac` let the search *invent a helper function*: apply a function to a sub-list
   of the input, then derive that function separately.
 
-Reverse shows how these fit together. After one `listRecUC` the step goal is
+Reverse shows how these fit together. Its specification is
+`Impl .list .list (fun _ => True) (fun l out => out = l.reverse)`. After one `listRecUC` the step
+goal is
 `out = res ++ [hd]`, which no combinator builds directly. `appList` abstracts `res` and asks for a
 helper `f` with `f x = x ++ [hd]`. `introTac` turns that into an ordinary problem with input
 `(…, x)`, and a second `listRecUC` solves it: it's the append-constant problem again. The resulting
@@ -234,6 +480,89 @@ Some sample runs:
 #eval OrderSolution.code.eval (7, 2)              -- (2, 7)
 #eval MinMaxSolution.code.eval (4, [7,1,9])       -- (1, 9)
 ```
+
+## Sorting
+
+The specification of sorting is relational too (`InsertionSort.lean`). It doesn't say *how* to
+sort, only what a sorted output is: ordered, and a permutation of the input.
+
+```lean
+def Ordered : List Nat → Prop
+  | [] => True
+  | [_] => True
+  | x :: y :: xs => x ≤ y ∧ Ordered (y :: xs)
+
+def Sorted (inp out : List Nat) : Prop := Ordered out ∧ (List.Perm inp out)
+
+abbrev SortingProblem := Impl .list .list (fun _ => True) (fun inp out => Sorted inp out)
+```
+
+Insertion sort is derived in two layers:
+
+1. **Insertion into an already sorted list.** This is a problem of its own, with a precondition:
+
+   ```lean
+   abbrev InsertProblem := Impl (.nat ⊗ .list) .list (fun inp => Ordered inp.2)
+     (fun ⟨a, l⟩ out => Sorted (a :: l) out)
+   ```
+
+   `InsertionSolution` solves it with `ListRecTactic (Param UnCons)` (recurse over `l`, carrying
+   `a`), and `CasesTactic` on the comparison of `a` with the head of the list:
+   - if `a` is at most the head, the answer is `a :: l`;
+   - otherwise, it's the head followed by the recursive result.
+
+   Each branch picks its output with `UseTactic`, and leaves a proof obligation that this output
+   satisfies `Sorted`. Those obligations are proved with lemmas about `Ordered` and `Perm`.
+
+2. **Sorting.** `InsertionSortSolution` recurses over the input with `UnCons`. In the step, the
+   recursive result `res` is a sorted permutation of the tail. So by `RelaxPostTactic` it's enough
+   to produce *some* sorted version of `hd :: res`: an insertion problem. `SplitTactic` feeds
+   `(hd, res)` into it, and `InsertionSolution` is reused as is:
+
+   ```lean
+   def InsertionSortSolution : SortingProblem := by
+     apply ListRecTactic UnCons
+     · simp
+     · refine UseTactic (fun inp => []) ?_ ?_
+       · apply NilTactic
+         simp
+       · simp [Sorted, Ordered]
+     simp [dup, UnCons]
+     refine RelaxPostTactic _ (fun (a, l, res) out => Sorted (a :: res) out) ?_ ?_
+     · refine RelaxPreTactic (fun (a, l, res) => Ordered res) (fun _ pre => pre.1) ?_
+       refine SplitTactic (.nat ⊗ .list ⊗ .list) (.nat ⊗ .list) .list (fun (a, l, res) => (a, res)) (fun (a, res) out => Sorted (a :: res) out) ?_ ?_
+       · Vpair
+         · apply FstTactic
+           apply IdentityTactic
+           simp
+         · apply SndTactic
+           apply SndTactic
+           apply IdentityTactic
+           simp
+       refine RelaxPreTactic (fun (a, res) => Ordered res) ?_ ?_
+       · intro (a, res) ⟨s, hs1, hs2⟩
+         have : res = s.2.2 := by grind
+         exact this ▸ hs1
+       exact InsertionSolution
+     · intro (a, l, res) pre out
+       exact (SortedPerm_iff _ _ _ (List.Perm.cons _ pre.2.symm)).mp
+   ```
+
+```
+#eval InsertionSolution.code.eval (4, [1, 3, 5, 7])           -- [1, 3, 4, 5, 7]
+#eval InsertionSortSolution.code.eval [3, 1, 4, 1, 5, 9, 2, 6]  -- [1, 1, 2, 3, 4, 5, 6, 9]
+```
+
+Both derivations are guided: the case split, the outputs chosen with `UseTactic`, and the
+reduction of sorting to insertion are all written by hand. `vericode` can't find them, because they
+need a *helper with a precondition* (insertion only works into an ordered list), and the
+specification lemmas about `Ordered` and `Perm` need real proofs. Two related results elsewhere in
+the repository:
+- `MergeSolution` in `HarderProblems.lean` reuses `InsertionSolution` the same way, to merge two
+  sorted lists.
+- In the parametrized language, `vericodeP [insertVal, sorted]` derives insertion sort
+  automatically, but from a *functional* specification (`out = sorted l`, with `sorted` defined by
+  insertion) rather than the relational `Sorted`.
 
 ## A parametrized variant
 
